@@ -1,3 +1,4 @@
+import dbm
 from logging import currentframe
 from os import access, stat
 from fastapi import FastAPI,Depends,status,Form
@@ -10,16 +11,24 @@ from starlette.status import HTTP_401_UNAUTHORIZED
 from sql_app.database import get_db
 from  sql_app.models import User
 from  . import  models, schemas
-from sql_app.schemas import CreateUserRequest,LoginModel
+from sql_app.schemas import CreateUserRequest,LoginModel,Settings
+from fastapi.encoders import jsonable_encoder
+from fastapi.security import  OAuth2PasswordRequestForm
+from werkzeug.security import generate_password_hash , check_password_hash
 
 app = FastAPI()
+
+@AuthJWT.load_config
+def get_config():
+    return Settings()
+
 
 @app.post("/signup")
 def create(details: CreateUserRequest, db: Session = Depends(get_db)):
     to_create = User(
         username=details.username,
         email=details.email,
-        password=details.password
+        password=generate_password_hash(details.password)
     )
     db.add(to_create)
     db.commit()
@@ -27,20 +36,33 @@ def create(details: CreateUserRequest, db: Session = Depends(get_db)):
         "success": True,
         "created_id": to_create.id
     }
-'''@app.post('/login')
-def login(user:LoginModel,Authorize:AuthJWT=Depends()):
-    db_user=db.query(User).filter(User.username==user.username).first()
 
-    for user in User:
-        if (u["username"]==user.username) and (u["password"]==user.password):
-            
-            return {"username":user.username}
 
-        raise HTTPException(status_code='401',detail="Invalid username or password")
-  '''  
+
+@app.post('/login')
+def login(details:LoginModel,Authorize:AuthJWT=Depends(), db: Session = Depends(get_db)):
+    db_user= db.query(User).filter(User.username==details.username).first()
+    
+    if db_user and check_password_hash(db_user.password, details.password):
+
+        access_token=Authorize.create_access_token(subject=db_user.username)
+        refresh_token=Authorize.create_refresh_token(subject=db_user.username)
+
+        response={
+            "access":access_token,
+            "refresh":refresh_token
+        }
+        return jsonable_encoder(response)
+   
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="Invalid username or password")
+
+
+
 @app.get("/user")
 def get_by_id(id: int, db: Session = Depends(get_db)):
     return db.query(User).filter(User.id == id).first()
+
+
 
 @app.delete("delete_user")
 def delete(id: int, db: Session = Depends(get_db)):
