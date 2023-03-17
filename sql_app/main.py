@@ -1,47 +1,132 @@
 import dbm
 from logging import currentframe
 from os import access, stat
-from fastapi import FastAPI,Depends,status,Form
+import time
+from fastapi import FastAPI,Depends, Request,status,Form
 from sqlalchemy.orm import Session
 from fastapi.exceptions import HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from typing import List
 from fastapi_jwt_auth import AuthJWT
 from starlette.status import HTTP_401_UNAUTHORIZED
 from sql_app.database import get_db
 from  sql_app.models import User
 from  . import  models, schemas
-from sql_app.schemas import CreateUserRequest,LoginModel,Settings
+from sql_app.schemas import CreateUserRequest,LoginModel,Settings, ForgetPassword
 from fastapi.encoders import jsonable_encoder
 from fastapi.security import  OAuth2PasswordRequestForm
 from werkzeug.security import generate_password_hash , check_password_hash
+import uuid
+from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 
-app = FastAPI()
+
+description = """
+ChimichangApp API helps you do awesome stuff. 🚀
+
+## Users
+
+You will be able to:
+
+* **Create users** (_not implemented_).
+* **Read users** (_not implemented_).
+"""
+
+
+tags_metadata = [
+    {
+        "name": "users",
+        "description": "Operations with users. The **login** logic is also here.",
+    },
+]
+app = FastAPI(
+
+   title="ChimichangApp",
+    description=description,
+    version="0.0.1",
+    terms_of_service="http://example.com/terms/",
+    contact={
+        "name": "Deadpoolio the Amazing",
+        "url": "http://x-force.example.com/contact/",
+        "email": "dp@x-force.example.com",
+    },
+    license_info={
+        "name": "Apache 2.0",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0.html",
+    },
+
+    openapi_tags = tags_metadata,
+    openapi_url="/api/v1/openapi.json",
+    docs_url="/documentation", 
+    #redoc_url=None,
+
+)
+
+class MyMiddleware(BaseHTTPMiddleware):
+     async def dispatch(self, request: Request, call_next):
+         start_time = time.time()
+         response = await call_next(request)
+         process_time = time.time() - start_time
+         response.headers["X-Process-Time"] = str(process_time)
+         return response
+     
+app.add_middleware(MyMiddleware)
+
+origins = [
+    "http://localhost.tiangolo.com",
+    "https://localhost.tiangolo.com",
+    "http://localhost",
+    "http://localhost:4000",
+    "http://localhost:3000",
+    "http://localhost:8080",
+    "http://localhost:8000/signup/"
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+    
+
+     
+@app.get("/")
+async def read_root():
+    return {"Welocome to our FASTAPI project ": "have a nice time"}
+
 
 @AuthJWT.load_config
 def get_config():
     return Settings()
 
 
-@app.post("/signup")
-def create(details: CreateUserRequest, db: Session = Depends(get_db)):
-    to_create = User(
-        username=details.username,
-        email=details.email,
-        password=generate_password_hash(details.password)
-    )
-    db.add(to_create)
-    db.commit()
-    return { 
-        "success": True,
-        "created_id": to_create.id
-    }
+@app.post("/signup",tags=["users"])
+async def create(details: CreateUserRequest, db: Session = Depends(get_db)):
+    db_user= db.query(User).filter(User.email==details.email).first()
+    if db_user :
+      raise HTTPException(status_code=404,detail="Email already registerd")
+    else:
+        to_create = User(
+            username=details.username,
+            email=details.email,
+            password=generate_password_hash(details.password)
+        )
+
+        db.add(to_create)
+        db.commit()
+        return { 
+            "message": "Succesful",
+            "created_id": to_create.id
+        }
+
+   
+  
 
 
-
-@app.post('/login')
+@app.post('/login',tags=["users"])
 def login(details:LoginModel,Authorize:AuthJWT=Depends(), db: Session = Depends(get_db)):
-    db_user= db.query(User).filter(User.username==details.username).first()
+    db_user= db.query(User).filter(User.email==details.email).first()
     
     if db_user and check_password_hash(db_user.password, details.password):
 
@@ -54,11 +139,23 @@ def login(details:LoginModel,Authorize:AuthJWT=Depends(), db: Session = Depends(
         }
         return jsonable_encoder(response)
    
-    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="Invalid username or password")
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="Invalid email or password")
 
 
 
-@app.get("/user")
+@app.post('/forget-password/')
+def forget_password (details:ForgetPassword,db: Session = Depends(get_db)):
+    #check user exist
+    db_user= db.query(User).filter(User.email==details.email).first()
+    if not db_user:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="User not found")
+    
+    #create reset pass and save in the database
+    reset_code =str(uuid.uuid1()) 
+    return reset_code
+
+
+@app.get("/user/", tags=["users"])
 def get_by_id(id: int, db: Session = Depends(get_db)):
     return db.query(User).filter(User.id == id).first()
 
