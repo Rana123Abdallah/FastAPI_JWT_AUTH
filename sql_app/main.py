@@ -1,24 +1,32 @@
+from datetime import timedelta
 import dbm
-from logging import currentframe
+import html
 from os import access, stat
 import time
-from fastapi import FastAPI,Depends, Request,status,Form
+from anyio import Path
+from fastapi import BackgroundTasks, FastAPI,Depends, Request,status,Form
 from sqlalchemy.orm import Session
 from fastapi.exceptions import HTTPException
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr
 from typing import List
 from fastapi_jwt_auth import AuthJWT
+from jose import JWTError, jwt
+from passlib.context import CryptContext
 from starlette.status import HTTP_401_UNAUTHORIZED
 from sql_app.database import get_db
-from  sql_app.models import User
-from  . import  models, schemas
-from sql_app.schemas import CreateUserRequest,LoginModel,Settings, ForgetPassword
+from  sql_app.models import Codes, Patient, User
+from  . import  models, schemas, crud
+from sql_app.schemas import AddPatient, CreateUserRequest,LoginModel,Settings, ForgetPassword
 from fastapi.encoders import jsonable_encoder
-from fastapi.security import  OAuth2PasswordRequestForm
+from fastapi.security import  OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from werkzeug.security import generate_password_hash , check_password_hash
 import uuid
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
+from fastapi_mail import FastMail, MessageSchema, ConnectionConfig, MessageType
+from starlette.responses import JSONResponse
+from starlette.requests import Request
 
 
 description = """
@@ -37,8 +45,13 @@ tags_metadata = [
     {
         "name": "users",
         "description": "Operations with users. The **login** logic is also here.",
+        "name": "patient",
     },
 ]
+class EmailSchema(BaseModel):
+    email: List[EmailStr]
+    
+
 app = FastAPI(
 
    title="ChimichangApp",
@@ -78,8 +91,11 @@ origins = [
     "http://localhost",
     "http://localhost:4000",
     "http://localhost:3000",
+    "http://localhost:3001",
     "http://localhost:8080",
-    "http://localhost:8000/signup/"
+    "http://localhost:8000/signup/",
+    "http://localhost:57909/"
+
 ]
 app.add_middleware(
     CORSMiddleware,
@@ -87,12 +103,69 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-)
     
+)
 
-     
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token") 
+
+def verify_password(plain_password, password):
+    return pwd_context.verify(plain_password, password)
+
+
+
+@app.post("/email")
+async def simple_send(email: EmailSchema) -> JSONResponse:
+    html = """<p>Hi this test mail, thanks for using Fastapi-mail</p> """
+
+    message = MessageSchema(
+        subject="Fastapi-Mail module",
+        recipients=email.dict().get("email"),
+        body=html,
+        subtype=MessageType.html
+        )
+      
+        
+
+    fm = FastMail(ConfigDict)
+    await fm.send_message(message)
+    return JSONResponse(
+
+        status_code=200, 
+        content={"message": "We have sent an email with instructions to reset your password "}
+    )
+
+
+
+
+
+
+
+@app.get("//")
+async def main (request: Request):
+    client_host = request.client.host
+    client_port  = request.client.port
+    request_url = request.url.path
+
+    return{
+        "client_host": client_host,
+        "client_port": client_port,
+        "request_url": request_url
+
+    }
+
+
 @app.get("/")
-async def read_root():
+async def read_root(Authorize:AuthJWT=Depends()):
+    try:
+        Authorize.jwt_required()
+
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Token"
+        )
+
+    
     return {"Welocome to our FASTAPI project ": "have a nice time"}
 
 
@@ -100,28 +173,51 @@ async def read_root():
 def get_config():
     return Settings()
 
+@app.post("/patient")
+async def add(details :AddPatient, db: Session = Depends(get_db)):
+    to_add_patient = Patient(
+         full_name=details.full_name,
+         gender=details.gender,
+         address=details.address,
+         mobile_number = details.mobile_number
+        
+    )
+    db.add(to_add_patient)
+    db.commit()
+    return { 
+         "message": "Congratulation!! Successfully Submited",
+         #"created_id": to_add_patient.id
+    }
+
 
 @app.post("/signup",tags=["users"])
 async def create(details: CreateUserRequest, db: Session = Depends(get_db)):
-    db_user= db.query(User).filter(User.email==details.email).first()
-    if db_user :
-      raise HTTPException(status_code=404,detail="Email already registerd")
-    else:
-        to_create = User(
-            username=details.username,
-            email=details.email,
-            password=generate_password_hash(details.password)
+    db_email = db.query(User).filter(User.email==details.email).first()
+    
+    if db_email is not None :
+      return HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already registerd"
+        )
+    
+    db_username = db.query(User).filter(User.username==details.username).first()
+
+    if db_username is not None:
+        return HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User with the username already exists"
         )
 
-        db.add(to_create)
-        db.commit()
-        return { 
-            "message": "Succesful",
-            "created_id": to_create.id
-        }
+    to_create = User(
+         username=details.username,
+         email=details.email,
+         password=generate_password_hash(details.password)
+    )
 
-   
-  
+    db.add(to_create)
+    db.commit()
+    return { 
+         "message": "Congratulation!! Successfully Register",
+        # "created_id": to_create.id
+    }
 
 
 @app.post('/login',tags=["users"])
@@ -134,25 +230,68 @@ def login(details:LoginModel,Authorize:AuthJWT=Depends(), db: Session = Depends(
         refresh_token=Authorize.create_refresh_token(subject=db_user.username)
 
         response={
-            "access":access_token,
-            "refresh":refresh_token
+            "message": "Successfull Login",
+            "token":access_token,
+            #"refresh":refresh_token
         }
         return jsonable_encoder(response)
    
-    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="Invalid email or password")
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Invalid email or password"
+    )
+
+@app.get('/refresh')
+async def refresh_token(Authorize:AuthJWT=Depends()):
+    """
+    ## Create a fresh token
+    This creates a fresh token. It requires an refresh token.
+    """
+
+
+    try:
+        Authorize.jwt_refresh_token_required()
+
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Please provide a valid refresh token"
+        ) 
+
+    current_user=Authorize.get_jwt_subject()
+
+    
+    access_token=Authorize.create_access_token(subject=current_user)
+
+    return jsonable_encoder({"access":access_token})
 
 
 
 @app.post('/forget-password/')
-def forget_password (details:ForgetPassword,db: Session = Depends(get_db)):
+async def forget_password (details:ForgetPassword,db: Session = Depends(get_db)):
     #check user exist
     db_user= db.query(User).filter(User.email==details.email).first()
     if not db_user:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="User not found")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="User not found.")
     
     #create reset pass and save in the database
     reset_code =str(uuid.uuid1()) 
-    return reset_code
+    
+    to_create = Codes(
+         reset_code = reset_code,
+         email=details.email,
+         
+    )
+
+    db.add(to_create)
+    db.commit()
+    #return db_code
+    #await crud.create_reset_code(reset_code, email =details.email )
+   # return reset_code
+     
+    #db.add(details.email ,reset_code)
+    #db.commit()
+    return reset_code 
+    
+ 
 
 
 @app.get("/user/", tags=["users"])
