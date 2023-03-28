@@ -2,6 +2,7 @@ from datetime import timedelta
 import dbm
 import html
 from os import access, stat
+import os
 import time
 from anyio import Path
 from fastapi import BackgroundTasks, FastAPI,Depends, Request,status,Form
@@ -27,7 +28,7 @@ from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig, MessageType
 from starlette.responses import JSONResponse
 from starlette.requests import Request
-
+from starlette.config import Config
 
 description = """
 ChimichangApp API helps you do awesome stuff. 🚀
@@ -43,14 +44,41 @@ You will be able to:
 
 tags_metadata = [
     {
+        "name": "patient",
+        "description": "Operations with patients.",
         "name": "users",
         "description": "Operations with users. The **login** logic is also here.",
-        "name": "patient",
+        
     },
 ]
+
 class EmailSchema(BaseModel):
     email: List[EmailStr]
+
+
+config = Config("env")
+print("========================")
+print("========================")
+
+#conf = ConnectionConfig(
+   # MAIL_USERNAME=getattr(config, "MAIL_USERNAME", "default_username"),
+   # MAIL_PASSWORD=getattr(config, "MAIL_PASSWORD", "default_password"),
+   # MAIL_FROM=getattr(config, "MAIL_FROM", "default_from"),
+   # MAIL_PORT=getattr(config, "MAIL_PORT", 587),
+   # MAIL_SERVER=getattr(config, "MAIL_SERVER", "smtp.gmail.com"),
+   # MAIL_FROM_NAME=getattr(config, "MAIL_FROM_NAME", "default_from_name"),
+   # MAIL_STARTTLS=bool = True,
+   # MAIL_SSL_TLS =bool = False,
+   # MAIL_SSL=False,
+   # USE_CREDENTIALS=True,
+#)
     
+
+
+
+
+
+
 
 app = FastAPI(
 
@@ -85,8 +113,8 @@ class MyMiddleware(BaseHTTPMiddleware):
      
 app.add_middleware(MyMiddleware)
 
-origins = [
-    "http://localhost.tiangolo.com",
+#origins = []
+'''    "http://localhost.tiangolo.com",
     "https://localhost.tiangolo.com",
     "http://localhost",
     "http://localhost:4000",
@@ -94,12 +122,12 @@ origins = [
     "http://localhost:3001",
     "http://localhost:8080",
     "http://localhost:8000/signup/",
-    "http://localhost:57909/"
+    "http://localhost:57909/"'''
 
-]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -114,7 +142,7 @@ def verify_password(plain_password, password):
 
 
 
-@app.post("/email")
+@app.post("/email",tags=["users"])
 async def simple_send(email: EmailSchema) -> JSONResponse:
     html = """<p>Hi this test mail, thanks for using Fastapi-mail</p> """
 
@@ -173,21 +201,6 @@ async def read_root(Authorize:AuthJWT=Depends()):
 def get_config():
     return Settings()
 
-@app.post("/patient")
-async def add(details :AddPatient, db: Session = Depends(get_db)):
-    to_add_patient = Patient(
-         full_name=details.full_name,
-         gender=details.gender,
-         address=details.address,
-         mobile_number = details.mobile_number
-        
-    )
-    db.add(to_add_patient)
-    db.commit()
-    return { 
-         "message": "Congratulation!! Successfully Submited",
-         #"created_id": to_add_patient.id
-    }
 
 
 @app.post("/signup",tags=["users"])
@@ -203,7 +216,7 @@ async def create(details: CreateUserRequest, db: Session = Depends(get_db)):
 
     if db_username is not None:
         return HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User with the username already exists"
+            detail="User with the username already exists so try to Change your username"
         )
 
     to_create = User(
@@ -240,7 +253,7 @@ def login(details:LoginModel,Authorize:AuthJWT=Depends(), db: Session = Depends(
         detail="Invalid email or password"
     )
 
-@app.get('/refresh')
+@app.get('/refresh',tags=["users"])
 async def refresh_token(Authorize:AuthJWT=Depends()):
     """
     ## Create a fresh token
@@ -265,7 +278,7 @@ async def refresh_token(Authorize:AuthJWT=Depends()):
 
 
 
-@app.post('/forget-password/')
+@app.post('/forget-password/',tags=["users"])
 async def forget_password (details:ForgetPassword,db: Session = Depends(get_db)):
     #check user exist
     db_user= db.query(User).filter(User.email==details.email).first()
@@ -300,11 +313,30 @@ def get_by_id(id: int, db: Session = Depends(get_db)):
 
 
 
-@app.delete("delete_user")
+@app.delete("delete_user",tags=["users"])
 def delete(id: int, db: Session = Depends(get_db)):
     db.query(User).filter(User.id == id).delete()
     db.commit()
     return { "success": True }
+
+
+
+
+@app.post("/patient",tags=["patient"])
+async def add(details :AddPatient, db: Session = Depends(get_db)):
+    to_add_patient = Patient(
+         full_name=details.full_name,
+         gender=details.gender,
+         address=details.address,
+         mobile_number = details.mobile_number
+        
+    )
+    db.add(to_add_patient)
+    db.commit()
+    return { 
+         "message": "Congratulation!! Successfully Submited",
+         #"created_id": to_add_patient.id
+    }
 '''
 @app.post("/users/", response_model=schemas.CreateUserRequest)
 def create_user(user: schemas.CreateUserRequest, db: Session = Depends(get_db)):
