@@ -17,7 +17,7 @@ from starlette.status import HTTP_401_UNAUTHORIZED
 from sql_app.database import get_db
 from  sql_app.models import Codes, Patient, User
 from  . import  models, schemas, crud
-from sql_app.schemas import AddPatient, CreateUserRequest,LoginModel,Settings, ForgetPassword
+from sql_app.schemas import AddPatient, CreateNewPassword, CreateUserRequest,LoginModel,Settings, ForgetPassword
 from fastapi.encoders import jsonable_encoder
 from fastapi.security import  OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from werkzeug.security import generate_password_hash , check_password_hash
@@ -30,7 +30,7 @@ from starlette.responses import JSONResponse
 from starlette.requests import Request
 from starlette.config import Config
 
-description = """
+description = """ 
 ChimichangApp API helps you do awesome stuff. 🚀
 
 ## Users
@@ -304,7 +304,24 @@ async def forget_password (details:ForgetPassword,db: Session = Depends(get_db))
     #db.commit()
     return reset_code 
     
- 
+@app.post('/new-password/',tags=["users"])
+async def create_new_password (details:CreateNewPassword,db: Session = Depends(get_db)):
+    db_user= db.query(User).filter(User.password==details.new_password).first()
+    if db_user:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Your new password must be different from previously used password"
+        )
+
+    else:
+        new_password = generate_password_hash(details.new_password)
+        db.query(User).filter(User.password == 'password').update({'password':'new_password'})
+        db.commit()
+        
+    return { 
+         "message": "Congratulation!! Successfully Changed password",
+        
+    }
+
 
 
 @app.get("/user/", tags=["users"])
@@ -317,10 +334,10 @@ def get_by_id(id: int, db: Session = Depends(get_db)):
 def delete(id: int, db: Session = Depends(get_db)):
     db.query(User).filter(User.id == id).delete()
     db.commit()
-    return { "success": True }
+    return { "success": " The user has been deleted" }
 
 
-
+# ****************************************************************************************
 
 @app.post("/patient",tags=["patient"])
 async def add(details :AddPatient, db: Session = Depends(get_db)):
@@ -337,6 +354,23 @@ async def add(details :AddPatient, db: Session = Depends(get_db)):
          "message": "Congratulation!! Successfully Submited",
          #"created_id": to_add_patient.id
     }
+
+@app.get("/patient/", tags=["patient"])
+def get_by_fullname(full_name: str, db: Session = Depends(get_db)):
+    return db.query(Patient).filter(Patient.full_name == full_name).first()
+
+#getting all paients
+@app.get('/patients',tags=["patient"])
+def get_patients(db: Session = Depends(get_db)):
+    return db.query(models.Patient).all()
+
+
+@app.delete("delete_patient",tags=["patient"])
+def delete(full_name: str, db: Session = Depends(get_db)):
+    db.db.query(Patient).filter(Patient.full_name == full_name).delete()
+    db.commit()
+    return { "success": " The patient has been deleted" }
+
 '''
 @app.post("/users/", response_model=schemas.CreateUserRequest)
 def create_user(user: schemas.CreateUserRequest, db: Session = Depends(get_db)):
