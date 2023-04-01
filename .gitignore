@@ -164,3 +164,4 @@ data
 !.vscode/launch.json
 Makefile
 .idea/
+.github
