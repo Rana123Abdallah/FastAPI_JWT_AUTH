@@ -1,4 +1,4 @@
-from pydantic import BaseModel, BaseSettings
+from pydantic import BaseModel, BaseSettings, Field, constr
 from pydantic.networks import EmailStr
 from sqlalchemy import TEXT, TIMESTAMP
 class Config:
@@ -6,16 +6,16 @@ class Config:
 
 class CreateUserRequest(BaseModel):
     username: str
-    email:str
-    password:str
+    email:EmailStr
+    password:constr(min_length=8, max_length=32)
 
 
 class Settings(BaseModel):
     authjwt_secret_key:str='98af08c0018e5631e24864709e12d456035c2c5162ac1e8ad4a1a44cd3a92172'
 
 class LoginModel(BaseModel):
-    email:str
-    password:str
+    email:EmailStr
+    password:constr(min_length=8, max_length=32)
 
 
 class Token(BaseModel):
@@ -26,11 +26,16 @@ class Token(BaseModel):
 class TokenData(BaseModel):
     username: str | None = None
 
+class CreateNewPassword(BaseModel):
+    new_password: constr(min_length=8, max_length=32)
+    confirm_password: str = Field(..., alias='password')
+     
+
 class ForgetPassword(BaseModel):
-    email:str
+    email:EmailStr
     
 class AddPatient(BaseModel):
     full_name : str
     gender : str
     address :str
-    mobile_number : str
+    mobile_number : constr(min_length=11, max_length=11)
