@@ -25,14 +25,14 @@ def create_user(db: Session, user: schemas.CreateUserRequest):
     db.refresh(db_user)
     return db_user
 
-'''def create_reset_code(db: Session, code: schemas.ForgetPassword):
+def create_reset_code(db: Session, code: schemas.ForgetPassword):
     email = code.email 
     db_code = models.Codes(email = email)
     db.add(db_code)
     db.commit()
     db.refresh(db_code)
     return db_code
-'''
+
 def add_patient(db: Session, patient: schemas.AddPatient):
     full_name=patient.full_name
     db_patient = models.Patient(full_name=full_name, gender=patient.gender,

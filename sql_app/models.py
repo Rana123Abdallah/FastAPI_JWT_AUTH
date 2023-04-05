@@ -26,7 +26,7 @@ class Codes(Base):
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, nullable=False)
     reset_code = Column(String, unique=True, nullable=False)
-    expired_in = Column(DateTime(), server_default=func.now())
+    expired_in = Column(DateTime(timezone=True), server_default=func.now())
 
 class Patient(Base):
     __tablename__ = "Patient"

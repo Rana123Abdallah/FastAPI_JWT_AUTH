@@ -31,26 +31,9 @@ class CreateNewPassword(BaseModel):
     confirm_password: str = Field(..., alias='password')
      
 
-class ForgetPasswordRequest(BaseModel):
+class ForgetPassword(BaseModel):
     email:EmailStr
-
-
-class ResetPasswordRequest(BaseModel):
-    password: constr(min_length=8, max_length=32)
-    #email:EmailStr
-    #verification_code: int
-
-
-
-class Patient(BaseModel):
-    full_name : str
-    gender : str
-    address :str
-    mobile_number : constr(min_length=11, max_length=11)
-
-    class Config:
-        orm_mode = True
-
+    
 class AddPatient(BaseModel):
     full_name : str
     gender : str

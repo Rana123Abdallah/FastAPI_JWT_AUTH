@@ -1,6 +1,5 @@
 from datetime import timedelta
 import dbm
-import email
 import html
 from os import access, stat
 import os
@@ -18,7 +17,7 @@ from starlette.status import HTTP_401_UNAUTHORIZED
 from sql_app.database import get_db
 from  sql_app.models import Codes, Patient, User
 from  . import  models, schemas, crud
-from sql_app.schemas import AddPatient, CreateNewPassword, CreateUserRequest, ForgetPasswordRequest,LoginModel, ResetPasswordRequest,Settings, ForgetPassword
+from sql_app.schemas import AddPatient, CreateNewPassword, CreateUserRequest,LoginModel,Settings, ForgetPassword
 from fastapi.encoders import jsonable_encoder
 from fastapi.security import  OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from werkzeug.security import generate_password_hash , check_password_hash
@@ -232,35 +231,28 @@ async def create(details: CreateUserRequest, db: Session = Depends(get_db)):
          "message": "Congratulation!! Successfully Register",
         # "created_id": to_create.id
     }
-#*********************************************************************************************
+
 
 @app.post('/login',tags=["users"])
 def login(details:LoginModel,Authorize:AuthJWT=Depends(), db: Session = Depends(get_db)):
-   try:
-        db_user= db.query(User).filter(User.email==details.email).first()
-
-        if db_user and check_password_hash(db_user.password, details.password):
-
-            access_token=Authorize.create_access_token(subject=db_user.username)
-            #refresh_token=Authorize.create_refresh_token(subject=db_user.username)
-
-            response={
-                "message": "Successfull Login",
-                "token":access_token,
-                #"refresh":refresh_token
-            }
-            return jsonable_encoder(response)
+    db_user= db.query(User).filter(User.email==details.email).first()
     
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid email or password"
-        )
-   
-   except Exception as e:
-        
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid email or password")
+    if db_user and check_password_hash(db_user.password, details.password):
 
-#********************************************************************************************8
+        access_token=Authorize.create_access_token(subject=db_user.username)
+        refresh_token=Authorize.create_refresh_token(subject=db_user.username)
+
+        response={
+            "message": "Successfull Login",
+            "token":access_token,
+            #"refresh":refresh_token
+        }
+        return jsonable_encoder(response)
+   
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Invalid email or password"
+    )
+
 @app.get('/refresh',tags=["users"])
 async def refresh_token(Authorize:AuthJWT=Depends()):
     """
@@ -284,115 +276,6 @@ async def refresh_token(Authorize:AuthJWT=Depends()):
 
     return jsonable_encoder({"access":access_token})
 
-
-
-
-# ***********************************************************************************************
-import random
-import smtplib
-
-def generate_verification_code():
-    # Generate a random 4-digit verification code
-    return str(random.randint(1000, 9999))
-
-def send_verification_code(email):
-    # Generate a verification code
-    verification_code = generate_verification_code()
-
-    # Set up the SMTP server
-    smtp_server = "smtp.gmail.com"
-    smtp_port = 587
-    smtp_username = "ranoshah1233@gmail.com"
-    smtp_password = "lnxjsjqwwnisvvzf"
-
-    # Create the email message
-    message = f"Your verification code is {verification_code}"
-    sender_email = "ranoshah1233@gmail.com"
-    receiver_email = "ra4329530@gmail.com"
-    subject = 'Verify Your Code Dear!'
-    msg = f'Subject: {subject}\n\n{message}'
-
-    # Log in to the SMTP server and send the email
-    with smtplib.SMTP(smtp_server, smtp_port) as server:
-        server.starttls()
-        server.login(smtp_username, smtp_password)
-        server.sendmail(sender_email, receiver_email, msg)
-    return verification_code
-
-# Example usage
-#send_verification_code("ra4329530@gmail.com")
-
-def verify_verification_code(email, verification_code):
-    # Your code to verify the verification code goes here
-    # Set up the SMTP server
-    smtp_server = "smtp.gmail.com"
-    smtp_port = 587
-    smtp_username = "ranoshah1233@gmail.com"
-    smtp_password = "lnxjsjqwwnisvvzf"
-
-    # Log in to the SMTP server and send the email
-    with smtplib.SMTP(smtp_server, smtp_port) as server:
-        server.starttls()
-        server.login(smtp_username, smtp_password)
-
-        # Check if the code matches the one sent in the email
-        message = f"Your verification code is {verification_code}"
-        sender_email = "ranoshah1233@gmail.com"
-        receiver_email = email
-
-        if message in server.sendmail(sender_email, receiver_email, message):
-            return True
-        else:
-            return False
-
-
-def get_user_by_email(db: Session, email: str):
-    return db.query(models.User).filter(models.User.email == email).first()
-
-def update_password(db: Session,email: str, password: str):
-    user = get_user_by_email(email)
-    if user:
-        return db.query(models.User).filter(models.User.email == email).update({"password": password})
-        #return {"message": "Your password has been updated successfully."}
-    else:
-        return {"message": "User not found."}
-
-# **********************************************************************************************
-
-
-@app.post('/forget-password/',tags=["users"])
-async def forget_password (details:ForgetPasswordRequest,db: Session = Depends(get_db)):
-    #check user exist
-    db_user= db.query(User).filter(User.email==details.email).first()
-    if not db_user:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-                            detail="User with this email not found, Check that this email which you had registered .")
-    
-    code = send_verification_code(details.email)
-    return { 
-         "message": " Check your email we send you a 4-digit verification code ",
-        
-    }
- ###############################################################################
-
-@app.post("/reset_password/",tags=["users"])
-async def reset_password(details:ResetPasswordRequest,db: Session = Depends(get_db)):
-   
-   # Verify code
-   if verify_verification_code(email, verification_code):
-        # Update password
-        hashed_password = generate_password_hash(details.password)
-        db_user = db.query(User).filter(User.email == details.email).first()
-        db_user.password = hashed_password
-        db.commit()
-
-        # Return response
-        return {
-            "message": "Password updated successfully",
-        }
-   else:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-                            detail="Incorrect verification code")
 
 
 @app.post('/forget-password/',tags=["users"])
@@ -447,16 +330,15 @@ def get_by_id(id: int, db: Session = Depends(get_db)):
 
 
 
-@app.delete("/delete_user/",tags=["users"])
+@app.delete("delete_user",tags=["users"])
 def delete(id: int, db: Session = Depends(get_db)):
     db.query(User).filter(User.id == id).delete()
     db.commit()
     return { "success": " The user has been deleted" }
 
 
-# ********************************************************************************************************* 
+# ****************************************************************************************
 
-# Add new patient
 @app.post("/patient",tags=["patient"])
 async def add(details :AddPatient, db: Session = Depends(get_db)):
     to_add_patient = Patient(
@@ -473,22 +355,17 @@ async def add(details :AddPatient, db: Session = Depends(get_db)):
          #"created_id": to_add_patient.id
     }
 
-
-#getting  patient with his name
 @app.get("/patient/", tags=["patient"])
 def get_by_fullname(full_name: str, db: Session = Depends(get_db)):
     return db.query(Patient).filter(Patient.full_name == full_name).first()
 
-
-#getting all patients
+#getting all paients
 @app.get('/patients',tags=["patient"])
 def get_patients(db: Session = Depends(get_db)):
-    patients = db.query(models.Patient).all()
-    return {"status": True, "message": None, "patients": [schemas.Patient.from_orm(patient) for patient in patients]}
+    return db.query(models.Patient).all()
 
 
-#Deleting patient with his name
-@app.delete("/delete_patient/",tags=["patient"])
+@app.delete("delete_patient",tags=["patient"])
 def delete(full_name: str, db: Session = Depends(get_db)):
     db.db.query(Patient).filter(Patient.full_name == full_name).delete()
     db.commit()
