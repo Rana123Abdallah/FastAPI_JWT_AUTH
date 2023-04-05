@@ -18,7 +18,7 @@ from starlette.status import HTTP_401_UNAUTHORIZED
 from sql_app.database import get_db
 from  sql_app.models import Codes, Patient, User
 from  . import  models, schemas, crud
-from sql_app.schemas import AddPatient, CreateNewPassword, CreateUserRequest, ForgetPasswordRequest,LoginModel, ResetPasswordRequest,Settings, ForgetPassword
+from sql_app.schemas import AddPatient, CreateNewPassword, CreateUserRequest, ForgetPasswordRequest,LoginModel, ResetPasswordRequest,Settings
 from fastapi.encoders import jsonable_encoder
 from fastapi.security import  OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from werkzeug.security import generate_password_hash , check_password_hash
@@ -396,7 +396,7 @@ async def reset_password(details:ResetPasswordRequest,db: Session = Depends(get_
 
 
 @app.post('/forget-password/',tags=["users"])
-async def forget_password (details:ForgetPassword,db: Session = Depends(get_db)):
+async def forget_password (details:ForgetPasswordRequest,db: Session = Depends(get_db)):
     #check user exist
     db_user= db.query(User).filter(User.email==details.email).first()
     if not db_user:
@@ -490,7 +490,7 @@ def get_patients(db: Session = Depends(get_db)):
 #Deleting patient with his name
 @app.delete("/delete_patient/",tags=["patient"])
 def delete(full_name: str, db: Session = Depends(get_db)):
-    db.db.query(Patient).filter(Patient.full_name == full_name).delete()
+    db.query(Patient).filter(Patient.full_name == full_name).delete()
     db.commit()
     return { "success": " The patient has been deleted" }
 
