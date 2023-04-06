@@ -14,4 +14,4 @@ RUN pip install --trusted-host pypi.python.org -r requirements.txt
 EXPOSE 8000
 
 # Run the app
-CMD ["uvicorn", "sql_app.main:app", "--host", "0.0.0.0", "--port", "80"]
+CMD ["uvicorn", "sql_app.main:app", "--host", "0.0.0.0", "--port", "8000"]

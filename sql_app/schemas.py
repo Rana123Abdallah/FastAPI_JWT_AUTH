@@ -1,3 +1,5 @@
+from ast import List
+from typing import List
 from pydantic import BaseModel, BaseSettings, Field, constr
 from pydantic.networks import EmailStr
 from sqlalchemy import TEXT, TIMESTAMP
@@ -8,6 +10,10 @@ class CreateUserRequest(BaseModel):
     username: str
     email:EmailStr
     password:constr(min_length=8, max_length=32)
+    patients: List[str] = []
+
+    class Config:
+        orm_mode = True
 
 
 class Settings(BaseModel):
@@ -56,3 +62,13 @@ class AddPatient(BaseModel):
     gender : str
     address :str
     mobile_number : constr(min_length=11, max_length=11)
+
+class AddPatientUser(BaseModel):
+    user_id : int
+    full_name : str
+    gender : str
+    address :str
+    mobile_number : constr(min_length=11, max_length=11)
+
+    class Config:
+        orm_mode = True

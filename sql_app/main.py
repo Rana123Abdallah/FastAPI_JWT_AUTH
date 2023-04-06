@@ -15,10 +15,10 @@ from fastapi_jwt_auth import AuthJWT
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from starlette.status import HTTP_401_UNAUTHORIZED
-from sql_app.database import get_db
+from sql_app.database import Base, get_db
 from  sql_app.models import Codes, Patient, User
 from  . import  models, schemas, crud
-from sql_app.schemas import AddPatient, CreateNewPassword, CreateUserRequest, ForgetPasswordRequest,LoginModel, ResetPasswordRequest,Settings
+from sql_app.schemas import AddPatient, AddPatientUser, CreateNewPassword, CreateUserRequest, ForgetPasswordRequest,LoginModel, ResetPasswordRequest,Settings
 from fastapi.encoders import jsonable_encoder
 from fastapi.security import  OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from werkzeug.security import generate_password_hash , check_password_hash
@@ -168,7 +168,9 @@ async def simple_send(email: EmailSchema) -> JSONResponse:
 
 
 
-
+@app.get("//")
+async def root(db: Session = Depends(get_db)):
+    Base.metadata.drop_all(bind=db.bind)
 
 @app.get("//")
 async def main (request: Request):
@@ -457,8 +459,8 @@ def delete(id: int, db: Session = Depends(get_db)):
 # ********************************************************************************************************* 
 
 # Add new patient
-@app.post("/patient",tags=["patient"])
-async def add(details :AddPatient, db: Session = Depends(get_db)):
+@app.post("/users/{user_id}/patient",tags=["patient"])
+async def add(details :AddPatientUser, db: Session = Depends(get_db)):
     to_add_patient = Patient(
          full_name=details.full_name,
          gender=details.gender,

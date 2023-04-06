@@ -33,7 +33,7 @@ def create_user(db: Session, user: schemas.CreateUserRequest):
     db.refresh(db_code)
     return db_code
 '''
-def add_patient(db: Session, patient: schemas.AddPatient):
+def add_patient(db: Session, patient: schemas.AddPatient, user_id:int):
     full_name=patient.full_name
     db_patient = models.Patient(full_name=full_name, gender=patient.gender,
          address=patient.address,mobile_number= patient.mobile_number)

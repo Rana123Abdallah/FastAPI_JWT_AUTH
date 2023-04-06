@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from pydantic.networks import EmailStr
 from sql_app.database import Base
-from sqlalchemy import TIMESTAMP, String,Boolean,Integer,Float,Column,Text,DateTime,func
+from sqlalchemy import TIMESTAMP, ForeignKey, String,Boolean,Integer,Float,Column,Text,DateTime,func
 from sqlalchemy.orm import relationship
 from sqlalchemy import update
 
@@ -17,8 +17,8 @@ class User(Base):
     email = Column(String, unique=True, nullable=False)
     password = Column(String,nullable=False)
     ##hashed_password = Column(String)
+    patients = relationship("Patient", back_populates="user")
     
-
 
 class Codes(Base):
     __tablename__ = "Codes"
@@ -37,4 +37,6 @@ class Patient(Base):
     address = Column(String,nullable=False)
     mobile_number = Column(String,nullable=False)
     #submited_at = Column(DateTime(timezone=True), server_default=func.now())
+    user_id = Column(Integer, ForeignKey('users.id'))
+    user = relationship("User", back_populates="patients")
   
