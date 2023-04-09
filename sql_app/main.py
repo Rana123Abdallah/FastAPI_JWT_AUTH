@@ -238,7 +238,7 @@ async def create(details: CreateUserRequest, db: Session = Depends(get_db)):
     db.add(to_create)
     db.commit()
     return { 
-        "status": True,
+        
          "message": "Congratulation!! Successfully Register",
         # "created_id": to_create.id
     }
@@ -264,7 +264,7 @@ def login(details:LoginModel,Authorize:AuthJWT=Depends(), db: Session = Depends(
             #refresh_token=Authorize.create_refresh_token(subject=db_user.username)
 
             response={
-                "status": True,
+                
                 "message": "Successfull Login",
                 "token":access_token,
                 #"refresh":refresh_token
