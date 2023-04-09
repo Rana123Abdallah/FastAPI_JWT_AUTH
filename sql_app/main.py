@@ -17,9 +17,9 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from starlette.status import HTTP_401_UNAUTHORIZED
 from sql_app.database import Base, SessionLocal, get_db
-from  sql_app.models import Codes, Patient, User
+from  sql_app.models import Codes, MedicalRecord, Patient, User
 from  . import  models, schemas, crud
-from sql_app.schemas import AddPatient, AddPatientUser, CreateNewPassword, CreateUserRequest, DeletePatient, ForgetPasswordRequest, GetPatient,LoginModel, ResetPasswordRequest,Settings
+from sql_app.schemas import AddMedicalRecord, AddPatient, AddPatientUser, CreateNewPassword, CreateUserRequest, DeletePatient, ForgetPasswordRequest, GetPatient,LoginModel, ResetPasswordRequest,Settings
 from fastapi.encoders import jsonable_encoder
 from fastapi.security import  OAuth2PasswordRequestForm, OAuth2PasswordBearer,OAuth2AuthorizationCodeBearer
 from werkzeug.security import generate_password_hash , check_password_hash
@@ -539,9 +539,12 @@ def create_patient(details: AddPatient,Authorize:AuthJWT=Depends(), db: Session 
     db.commit()
     return { 
          "message": "Congratulation!! Successfully Submited",
-         #"created_id": to_add_patient.id
+         "created_id": new_patient.id
     }
 #*************************************************************************************************************
+
+
+
 #Get a current user's patients
 @app.get('/user/patients', tags=["Patient with logged user"])
 async def get_user_patients(Authorize:AuthJWT=Depends(),db: Session = Depends(get_db) ):
@@ -632,6 +635,53 @@ async def delete_specific_patient(details:DeletePatient,Authorize:AuthJWT=Depend
 
 
 #**********************************************************************************************************************
+
+@app.post("/patient/medical_record",tags=["Patient with logged user"])
+def create_patient(details: AddMedicalRecord,Authorize:AuthJWT=Depends(), db: Session = Depends(get_db)):
+
+    """
+        ## Add New Medical Record to this patient by current user
+        Remember you need to save the return id from the submitted patient you added
+        
+    """
+    try:
+        Authorize.jwt_required()
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,detail="Invalid token")
+
+    current_user=Authorize.get_jwt_subject()
+    user=db.query(User).filter(User.id==current_user).first()
+
+
+    new_Medical_Record = MedicalRecord(
+         result=details.result,
+         patient_id=details.patient_id,
+     )
+    db.add(new_Medical_Record)
+    db.commit()
+    return { 
+         "message": "Congratulation!! Successfully Add Anew Medical Record to this patient ",
+         
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 #getting  patient with his name

@@ -1,9 +1,10 @@
 from ast import List
+import datetime
 from enum import Enum
 from typing import List
 from pydantic import BaseModel, BaseSettings, Field, constr, validator
 from pydantic.networks import EmailStr
-from sqlalchemy import TEXT, TIMESTAMP
+from sqlalchemy import TEXT, TIMESTAMP, DateTime
 class Config:
         arbitrary_types_allowed = True
 
@@ -89,3 +90,13 @@ class GetPatient(BaseModel):
 
 class DeletePatient(BaseModel):
     full_name : str
+
+
+
+class AddMedicalRecord(BaseModel):
+    result : str
+    patient_id : int
+    #date:DateTime.now()
+
+    class Config:
+        orm_mode = True
