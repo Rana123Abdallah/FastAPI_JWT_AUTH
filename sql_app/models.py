@@ -37,6 +37,6 @@ class Patient(Base):
     address = Column(String,nullable=False)
     mobile_number = Column(String,nullable=False)
     #submited_at = Column(DateTime(timezone=True), server_default=func.now())
-    user_id = Column(Integer, ForeignKey('users.id'))
+    user_id = Column(Integer, ForeignKey('User.id'))
     user = relationship("User", back_populates="patients")
   

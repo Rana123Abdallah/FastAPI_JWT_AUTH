@@ -6,21 +6,22 @@ from os import access, stat
 import os
 import time
 from anyio import Path
-from fastapi import BackgroundTasks, FastAPI,Depends, Request,status,Form
+from fastapi import BackgroundTasks, FastAPI,Depends, Header, Request,status,Form
+from flask import session
 from sqlalchemy.orm import Session
 from fastapi.exceptions import HTTPException
 from pydantic import BaseModel, ConfigDict, EmailStr
-from typing import List
+from typing import Annotated, List
 from fastapi_jwt_auth import AuthJWT
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from starlette.status import HTTP_401_UNAUTHORIZED
-from sql_app.database import Base, get_db
+from sql_app.database import Base, SessionLocal, get_db
 from  sql_app.models import Codes, Patient, User
 from  . import  models, schemas, crud
-from sql_app.schemas import AddPatient, AddPatientUser, CreateNewPassword, CreateUserRequest, ForgetPasswordRequest,LoginModel, ResetPasswordRequest,Settings
+from sql_app.schemas import AddPatient, AddPatientUser, CreateNewPassword, CreateUserRequest, DeletePatient, ForgetPasswordRequest, GetPatient,LoginModel, ResetPasswordRequest,Settings
 from fastapi.encoders import jsonable_encoder
-from fastapi.security import  OAuth2PasswordRequestForm, OAuth2PasswordBearer
+from fastapi.security import  OAuth2PasswordRequestForm, OAuth2PasswordBearer,OAuth2AuthorizationCodeBearer
 from werkzeug.security import generate_password_hash , check_password_hash
 import uuid
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,23 +33,28 @@ from starlette.requests import Request
 from starlette.config import Config
 
 description = """ 
-ChimichangApp API helps you do awesome stuff. 🚀
+## This app helps doctor to make easy prediction for GP-Respiratory Disease based on Machine Learning model. 🚀
 
-## Users
+## Users have to be doctors not patient to use this app .
 
-You will be able to:
+## You will be able to:
 
-* **Create users** (_not implemented_).
-* **Read users** (_not implemented_).
+* **Create users**. 
+* **Read users**.
+* **other operations on patients that added by doctors " Users"**.
+* **As create & get & delete patient**.
+
 """
 
 
 tags_metadata = [
     {
+        "name" : "Patient with logged user",
+        "description": "Operations with patients that created by the currently logged in users",
         "name": "patient",
         "description": "Operations with patients.",
-        "name": "users",
-        "description": "Operations with users. The **login** logic is also here.",
+        "name": "User",
+        "description": "Operations with users. The **logic** protected is also here.",
         
     },
 ]
@@ -83,7 +89,7 @@ print("========================")
 
 app = FastAPI(
 
-   title="ChimichangApp",
+   title="GP-Respiratory Disease",
     description=description,
     version="0.0.1",
     terms_of_service="http://example.com/terms/",
@@ -135,15 +141,16 @@ app.add_middleware(
     
 )
 
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token") 
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login") 
 
 def verify_password(plain_password, password):
     return pwd_context.verify(plain_password, password)
 
 
 
-@app.post("/email",tags=["users"])
+@app.post("/email",tags=["User"])
 async def simple_send(email: EmailSchema) -> JSONResponse:
     html = """<p>Hi this test mail, thanks for using Fastapi-mail</p> """
 
@@ -168,12 +175,12 @@ async def simple_send(email: EmailSchema) -> JSONResponse:
 
 
 
-@app.get("//")
+'''@app.get("//")
 async def root(db: Session = Depends(get_db)):
     Base.metadata.drop_all(bind=db.bind)
-
-@app.get("//")
-async def main (request: Request):
+'''
+@app.get("//",tags=["User"])
+async def main_client(request: Request):
     client_host = request.client.host
     client_port  = request.client.port
     request_url = request.url.path
@@ -186,7 +193,7 @@ async def main (request: Request):
     }
 
 
-@app.get("/")
+@app.get("/",tags=["User"])
 async def read_root(Authorize:AuthJWT=Depends()):
     try:
         Authorize.jwt_required()
@@ -206,7 +213,7 @@ def get_config():
 
 
 
-@app.post("/signup",tags=["users"])
+@app.post("/signup",tags=["User"])
 async def create(details: CreateUserRequest, db: Session = Depends(get_db)):
     db_email = db.query(User).filter(User.email==details.email).first()
     
@@ -231,22 +238,33 @@ async def create(details: CreateUserRequest, db: Session = Depends(get_db)):
     db.add(to_create)
     db.commit()
     return { 
+        "status": True,
          "message": "Congratulation!! Successfully Register",
         # "created_id": to_create.id
     }
 #*********************************************************************************************
 
-@app.post('/login',tags=["users"])
+@app.post('/login',tags=["User"])
 def login(details:LoginModel,Authorize:AuthJWT=Depends(), db: Session = Depends(get_db)):
-   try:
+   #try:
         db_user= db.query(User).filter(User.email==details.email).first()
-
+        if not db_user:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+            detail=" Sorry!! Invalid email , try again with the email which had been registered"
+            )
+        db_password = check_password_hash(db_user.password, details.password)
+        if not db_password:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=" Sorry!! Invalid password , try again with the correct password"
+                )
+        
         if db_user and check_password_hash(db_user.password, details.password):
 
-            access_token=Authorize.create_access_token(subject=db_user.username)
+            access_token=Authorize.create_access_token(subject=db_user.id,expires_time=timedelta(minutes=1440.0))
             #refresh_token=Authorize.create_refresh_token(subject=db_user.username)
 
             response={
+                "status": True,
                 "message": "Successfull Login",
                 "token":access_token,
                 #"refresh":refresh_token
@@ -257,13 +275,46 @@ def login(details:LoginModel,Authorize:AuthJWT=Depends(), db: Session = Depends(
             detail="Invalid email or password"
         )
    
-   except Exception as e:
+   
+'''except Exception as e:
         
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid email or password")
+'''
 
-#********************************************************************************************8
-@app.get('/refresh',tags=["users"])
+
+
+
+
+#**************************************************************************************************
+
+
+@app.get('/protected',tags=["User"])
+def get_logged_in_user(Authorize:AuthJWT=Depends()):
+
+    try:
+        Authorize.jwt_required()
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,detail="Invalid token")
+
+
+    current_user=Authorize.get_jwt_subject()
+
+    return {"current_user":current_user}
+
+
+
+#********************************************************************************************
+@app.post("/logout",tags=["User"])
+def user_logout(Authorization: str = Header(None)):
+    oauth2_scheme.revoke_token(Authorization)
+    return {"message": "Token revoked"}
+
+
+
+
+#******************************************************************************************************************
+@app.get('/refresh',tags=["User"])
 async def refresh_token(Authorize:AuthJWT=Depends()):
     """
     ## Create a fresh token
@@ -362,7 +413,7 @@ def update_password(db: Session,email: str, password: str):
 # **********************************************************************************************
 
 
-@app.post('/forget-password/',tags=["users"])
+@app.post('/forget-password/',tags=["User"])
 async def forget_password (details:ForgetPasswordRequest,db: Session = Depends(get_db)):
     #check user exist
     db_user= db.query(User).filter(User.email==details.email).first()
@@ -377,11 +428,11 @@ async def forget_password (details:ForgetPasswordRequest,db: Session = Depends(g
     }
  ###############################################################################
 
-@app.post("/reset_password/",tags=["users"])
+@app.post("/reset_password/",tags=["User"])
 async def reset_password(details:ResetPasswordRequest,db: Session = Depends(get_db)):
    
    # Verify code
-   if verify_verification_code(email, verification_code):
+   '''if verify_verification_code(email, verification_code):
         # Update password
         hashed_password = generate_password_hash(details.password)
         db_user = db.query(User).filter(User.email == details.email).first()
@@ -394,11 +445,11 @@ async def reset_password(details:ResetPasswordRequest,db: Session = Depends(get_
         }
    else:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-                            detail="Incorrect verification code")
+                            detail="Incorrect verification code")'''
 
 
-@app.post('/forget-password/',tags=["users"])
-async def forget_password (details:ForgetPasswordRequest,db: Session = Depends(get_db)):
+@app.post('/forget-password/',tags=["User"])
+async def create_reset_code (details:ForgetPasswordRequest,db: Session = Depends(get_db)):
     #check user exist
     db_user= db.query(User).filter(User.email==details.email).first()
     if not db_user:
@@ -423,7 +474,7 @@ async def forget_password (details:ForgetPasswordRequest,db: Session = Depends(g
     #db.commit()
     return reset_code 
     
-@app.post('/new-password/',tags=["users"])
+@app.post('/new-password/',tags=["User"])
 async def create_new_password (details:CreateNewPassword,db: Session = Depends(get_db)):
     db_user= db.query(User).filter(User.password==details.new_password).first()
     if db_user:
@@ -443,13 +494,13 @@ async def create_new_password (details:CreateNewPassword,db: Session = Depends(g
 
 
 
-@app.get("/user/", tags=["users"])
+@app.get("/user/", tags=["User"])
 def get_by_id(id: int, db: Session = Depends(get_db)):
     return db.query(User).filter(User.id == id).first()
 
 
 
-@app.delete("/delete_user/",tags=["users"])
+@app.delete("/delete_user/",tags=["User"])
 def delete(id: int, db: Session = Depends(get_db)):
     db.query(User).filter(User.id == id).delete()
     db.commit()
@@ -458,41 +509,154 @@ def delete(id: int, db: Session = Depends(get_db)):
 
 # ********************************************************************************************************* 
 
-# Add new patient
-@app.post("/users/{user_id}/patient",tags=["patient"])
-async def add(details :AddPatientUser, db: Session = Depends(get_db)):
-    to_add_patient = Patient(
+
+#Add New Patient by current user
+@app.post("/patients",tags=["Patient with logged user"])
+def create_patient(details: AddPatient,Authorize:AuthJWT=Depends(), db: Session = Depends(get_db)):
+
+    """
+        ## Add New Patient by current user
+        
+    """
+    try:
+        Authorize.jwt_required()
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,detail="Invalid token")
+
+    current_user=Authorize.get_jwt_subject()
+    user=db.query(User).filter(User.id==current_user).first()
+
+
+    new_patient = Patient(
          full_name=details.full_name,
          gender=details.gender,
          address=details.address,
          mobile_number = details.mobile_number
         
-    )
-    db.add(to_add_patient)
+     )
+    new_patient.user = user
+    db.add(new_patient)
     db.commit()
     return { 
          "message": "Congratulation!! Successfully Submited",
          #"created_id": to_add_patient.id
     }
+#*************************************************************************************************************
+#Get a current user's patients
+@app.get('/user/patients', tags=["Patient with logged user"])
+async def get_user_patients(Authorize:AuthJWT=Depends(),db: Session = Depends(get_db) ):
+    """
+        ## Get a current user's patients
+        This lists the patients created by the currently logged in users
+    
+    """
+    try:
+        Authorize.jwt_required()
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Token"
+        )
+
+    user = Authorize.get_jwt_subject()
+
+    current_user=db.query(User).filter(User.id==user).first()
+
+    #return jsonable_encoder(current_user.patients)
+    return {"status": True, "message": None, "patients": [schemas.Patient.from_orm(patient) for patient in current_user.patients]}
+
+        
+
+
+#********************************************************************************************************************
+
+#Get a specific patient by the currently logged in user
+@app.get('/user/patient/{full_name}/',tags=["Patient with logged user"])
+async def get_specific_patient(full_name:str,Authorize:AuthJWT=Depends(),db: Session = Depends(get_db)):
+    """
+        ## Get a specific patient by the currently logged in user
+        This returns an patient by FULL_NAME for the currently logged in user
+    
+    """
+    try:
+        Authorize.jwt_required()
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Token"
+        )
+
+    user=Authorize.get_jwt_subject()
+
+    current_user=db.query(User).filter(User.id==user).first()
+
+
+    patients=current_user.patients
+    for o in patients:
+        if o.full_name == full_name:
+           return {"status": True, "message": None, "patient": [schemas.Patient.from_orm(o)]}
+    
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+        detail="No patient with such full_name existed"
+    )
+
+#*****************************************************************************************************************************
+#Delete an patient
+@app.delete('/patient/delete/',tags=["Patient with logged user"])
+async def delete_specific_patient(details:DeletePatient,Authorize:AuthJWT=Depends(),db :Session= Depends(get_db)):
+
+    """
+        ## Delete an patient
+        This deletes an patient by its fullname
+    """
+
+    try:
+        Authorize.jwt_required()
+
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,detail="Invalid Token")
+
+    '''user=Authorize.get_jwt_subject()
+
+    current_user=db.query(User).filter(User.id==user).first()
+    patients=current_user.patients'''
+    patient_to_delete=db.query(Patient).filter(Patient.full_name==details.full_name).first()
+    if patient_to_delete:
+       db.delete(patient_to_delete)
+       db.commit()
+        # return order_to_delete
+       return { "success": " The patient has been deleted" }
+          
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="This Patient is not exist "
+        )
+       
+
+
+#**********************************************************************************************************************
 
 
 #getting  patient with his name
-@app.get("/patient/", tags=["patient"])
+@app.get("/patient/{full_name}", tags=["patient"])
 def get_by_fullname(full_name: str, db: Session = Depends(get_db)):
-    return db.query(Patient).filter(Patient.full_name == full_name).first()
+    patients = db.query(Patient).filter(Patient.full_name == full_name).first()
+    return {"status": True, "message": None, "patients": [schemas.Patient.from_orm(patient) for patient in patients]}
 
 
 #getting all patients
-@app.get('/patients',tags=["patient"])
-def get_patients(db: Session = Depends(get_db)):
-    patients = db.query(models.Patient).all()
+@app.get('/patients/{user_id}',tags=["patient"])
+def get_patients(user_id:int,db: Session = Depends(get_db)):
+    patients = db.query(models.Patient).filter(models.Patient.user_id == user_id).all()
     return {"status": True, "message": None, "patients": [schemas.Patient.from_orm(patient) for patient in patients]}
 
 
 #Deleting patient with his name
 @app.delete("/delete_patient/",tags=["patient"])
-def delete(full_name: str, db: Session = Depends(get_db)):
-    db.query(Patient).filter(Patient.full_name == full_name).delete()
+def delete(details:DeletePatient, db: Session = Depends(get_db)):
+    db_patient= db.query(Patient).filter(Patient.full_name==details.full_name).first()
+    if  not db_patient:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="This Patient is not exist "
+        )
+    db.query(Patient).filter(Patient.full_name == details.full_name).delete()
     db.commit()
     return { "success": " The patient has been deleted" }
 
