@@ -41,3 +41,10 @@ def add_patient(db: Session, patient: schemas.AddPatient, user_id:int):
     db.commit()
     db.refresh(db_patient)
     return db_patient
+
+
+def get_patient(db: Session, patient_id: int):
+    return db.query(models.Patient).filter(models.Patient.id == patient_id).first()
+
+def get_medical_record(db: Session, patient_id: int):
+    return db.query(models.MedicalRecord).filter(models.MedicalRecord.patient_id == patient_id).first()

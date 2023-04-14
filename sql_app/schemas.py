@@ -1,10 +1,13 @@
 from ast import List
 import datetime
 from enum import Enum
+from typing import Optional
 from typing import List
-from pydantic import BaseModel, BaseSettings, Field, constr, validator
+from pydantic import BaseModel, BaseSettings, Field, constr, validator 
 from pydantic.networks import EmailStr
 from sqlalchemy import TEXT, TIMESTAMP, DateTime
+import datetime
+
 class Config:
         arbitrary_types_allowed = True
 
@@ -55,6 +58,7 @@ class ResetPasswordRequest(BaseModel):
     FEMALE="Female"'''
 
 class Patient(BaseModel):
+    id:int
     full_name : str
     gender : str
     address :str
@@ -72,18 +76,6 @@ class AddPatient(BaseModel):
         orm_mode = True
 
 
-        
-
-class AddPatientUser(BaseModel):
-    user_id : int
-    full_name : str
-    gender : str
-    address :str
-    mobile_number : constr(min_length=11, max_length=11)
-
-    class Config:
-        orm_mode = True
-
 class GetPatient(BaseModel):
     full_name : str
 
@@ -92,11 +84,39 @@ class DeletePatient(BaseModel):
     full_name : str
 
 
+class MedicalRecord(BaseModel):
+    result : str
+    #patient_id : int
+    date: datetime.datetime
+
+
+
+    class Config:
+        orm_mode = True,
+        arbitrary_types_allowed = True
+        
+
+        
 
 class AddMedicalRecord(BaseModel):
     result : str
     patient_id : int
-    #date:DateTime.now()
+
+    class Config:
+        orm_mode = True
+        arbitrary_types_allowed = True
+
+class Patient(Patient):
+    medical_records: List[MedicalRecord] = []
+
+    class Config:
+        orm_mode = True
+
+class PatientWithMedicalRecord(BaseModel):
+    status:bool
+    message:str
+    patient: Patient
+    #medical_record: MedicalRecord
 
     class Config:
         orm_mode = True

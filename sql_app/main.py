@@ -19,7 +19,7 @@ from starlette.status import HTTP_401_UNAUTHORIZED
 from sql_app.database import Base, SessionLocal, get_db
 from  sql_app.models import Codes, MedicalRecord, Patient, User
 from  . import  models, schemas, crud
-from sql_app.schemas import AddMedicalRecord, AddPatient, AddPatientUser, CreateNewPassword, CreateUserRequest, DeletePatient, ForgetPasswordRequest, GetPatient,LoginModel, ResetPasswordRequest,Settings
+from sql_app.schemas import AddMedicalRecord, AddPatient, CreateNewPassword, CreateUserRequest, DeletePatient, ForgetPasswordRequest, GetPatient,LoginModel, ResetPasswordRequest,Settings
 from fastapi.encoders import jsonable_encoder
 from fastapi.security import  OAuth2PasswordRequestForm, OAuth2PasswordBearer,OAuth2AuthorizationCodeBearer
 from werkzeug.security import generate_password_hash , check_password_hash
@@ -426,7 +426,7 @@ async def forget_password (details:ForgetPasswordRequest,db: Session = Depends(g
          "message": " Check your email we send you a 4-digit verification code ",
         
     }
- ###############################################################################
+ #***************************************************************************************************************
 
 @app.post("/reset_password/",tags=["User"])
 async def reset_password(details:ResetPasswordRequest,db: Session = Depends(get_db)):
@@ -511,7 +511,7 @@ def delete(id: int, db: Session = Depends(get_db)):
 
 
 #Add New Patient by current user
-@app.post("/patients",tags=["Patient with logged user"])
+@app.post("/user/patients",tags=["Patient with logged user"])
 def create_patient(details: AddPatient,Authorize:AuthJWT=Depends(), db: Session = Depends(get_db)):
 
     """
@@ -565,7 +565,7 @@ async def get_user_patients(Authorize:AuthJWT=Depends(),db: Session = Depends(ge
     current_user=db.query(User).filter(User.id==user).first()
 
     #return jsonable_encoder(current_user.patients)
-    return {"status": True, "message": None, "patients": [schemas.Patient.from_orm(patient) for patient in current_user.patients]}
+    return {"status": True, "message": "All patients you had created are :", "patients": [schemas.Patient.from_orm(patient) for patient in current_user.patients]}
 
         
 
@@ -577,7 +577,7 @@ async def get_user_patients(Authorize:AuthJWT=Depends(),db: Session = Depends(ge
 async def get_specific_patient(full_name:str,Authorize:AuthJWT=Depends(),db: Session = Depends(get_db)):
     """
         ## Get a specific patient by the currently logged in user
-        This returns an patient by FULL_NAME for the currently logged in user
+        This returns a patient by FULL_NAME for the currently logged in user
     
     """
     try:
@@ -595,20 +595,20 @@ async def get_specific_patient(full_name:str,Authorize:AuthJWT=Depends(),db: Ses
     patients=current_user.patients
     for o in patients:
         if o.full_name == full_name:
-           return {"status": True, "message": None, "patient": [schemas.Patient.from_orm(o)]}
+           return {"status": True, "message": f"The all information of {full_name} " , "patient": [schemas.Patient.from_orm(o)]}
     
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
         detail="No patient with such full_name existed"
     )
 
 #*****************************************************************************************************************************
-#Delete an patient
-@app.delete('/patient/delete/',tags=["Patient with logged user"])
+#Delete a patient
+@app.delete('/user/patient/delete/',tags=["Patient with logged user"])
 async def delete_specific_patient(details:DeletePatient,Authorize:AuthJWT=Depends(),db :Session= Depends(get_db)):
 
     """
-        ## Delete an patient
-        This deletes an patient by its fullname
+        ## Delete a patient
+        This deletes a patient by its fullname
     """
 
     try:
@@ -635,9 +635,9 @@ async def delete_specific_patient(details:DeletePatient,Authorize:AuthJWT=Depend
 
 
 #**********************************************************************************************************************
-
-@app.post("/patient/medical_record",tags=["Patient with logged user"])
-def create_patient(details: AddMedicalRecord,Authorize:AuthJWT=Depends(), db: Session = Depends(get_db)):
+#Add New Medical Record to this patient by current user
+@app.post("/user/patient/medical_record",tags=["Patient with logged user"])
+def create_Medical_Record(details: AddMedicalRecord,Authorize:AuthJWT=Depends(), db: Session = Depends(get_db)):
 
     """
         ## Add New Medical Record to this patient by current user
@@ -660,27 +660,58 @@ def create_patient(details: AddMedicalRecord,Authorize:AuthJWT=Depends(), db: Se
     db.add(new_Medical_Record)
     db.commit()
     return { 
-         "message": "Congratulation!! Successfully Add Anew Medical Record to this patient ",
+         "message": "Congratulation!! Successfully Add a new Medical Record to this patient ",
          
     }
 
+#*******************************************************************************************************************************
+#getting a patient from Medical Record Table by its patient ID
+@app.get("/user/patients/{patient_id}/medical_records",tags=["Patient with logged user"])
+def read_medical_records_with_specific_patient(patient_id: int,Authorize:AuthJWT=Depends(), db: Session = Depends(get_db)):
+    
+    """
+        ## Get only information of Medical Record that belong to this patient through its ID by "current user".
+        
+    """
+    try:
+        Authorize.jwt_required()
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,detail="Invalid token")
+
+    current_user=Authorize.get_jwt_subject()
+    user=db.query(User).filter(User.id==current_user).first()
+    patients = db.query(models.MedicalRecord).filter(models.MedicalRecord.patient_id == patient_id).all()
+    return {"status": True, "message": "The medical record information to this patient", "patients": [schemas.AddMedicalRecord.from_orm(patient) for patient in patients]}
 
 
 
 
+#*******************************************************************************************************************************
+#getting a patient with its Medical Record information using patient ID
+@app.get("/user/patient/{patient_id}/medical_records",response_model=schemas.PatientWithMedicalRecord, tags=["Patient with logged user"])
+def read_Patient_With_its_MedicalRecord(patient_id: int,Authorize:AuthJWT=Depends(), db: Session = Depends(get_db)):
+    
+    """
+        ## Get all the information of a patient from patient Table and its Medical Record Information from Medical Record Table using patient ID.
+        This returns data by only currently logged user.
+        
+        
+    """
+    try:
+        Authorize.jwt_required()
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,detail="Invalid token")
 
+    current_user=Authorize.get_jwt_subject()
+    user=db.query(User).filter(User.id==current_user).first()
+    patient = crud.get_patient(db, patient_id=patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    medical_record = crud.get_medical_record(db, patient_id=patient_id)
+    return {"status": True,"message": f"All Information that belong to this patient {patient.full_name} ","patient": patient, "medical_record": medical_record}
 
-
-
-
-
-
-
-
-
-
-
-
+    
+#****************************************************************************************************************************************
 
 
 
@@ -710,14 +741,7 @@ def delete(details:DeletePatient, db: Session = Depends(get_db)):
     db.commit()
     return { "success": " The patient has been deleted" }
 
-'''
-@app.post("/users/", response_model=schemas.CreateUserRequest)
-def create_user(user: schemas.CreateUserRequest, db: Session = Depends(get_db)):
-    db_user = crud.get_user_by_email(db, email=user.email)
-    if db_user:
-        raise HTTPException(status_code=400, detail="Email already registered")
-    return crud.create_user(db=db, user=user)
-'''
+
 
 '''@app.get("/users/", response_model=list[schemas.CreateUserRequest])
 def read_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
@@ -732,91 +756,3 @@ def read_user(user_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="User not found")
     return db_user
 '''
-'''class Settings(BaseModel):
-    authjwt_secret_key:str='008357bb2bd823bc5d5fd41ca6823261ef57712146e22250abb44ad3c88b1970'
-
-'''
-'''
-@AuthJWT.load_config
-def get_config():
-    return Settings()
-
-'''
-'''@app.get("/")
-def index():
-    return {"Message":"Hello"}
-'''
-
-'''class User(BaseModel):
-    username:str
-    email:str
-    password:str
-
-    class Config:
-        schema_extra={
-            "example":{
-                "username":"Rana Abdallah",
-                "email":"rana@gmail.com",
-                "password":"password"
-            }
-        }
-users=[]
-'''
-'''class UserLogin(BaseModel):
-    username:str
-    password:str
-
-    class Config:
-        schema_extra={
-            "example":{
-                "username":"Rana Abdallah",
-                "password":"password"
-            }
-        }
-'''
-
-
-#users=[]
-
-#create a user
-'''@app.post('/signup',status_code=201)
-def create_user(user:User):
-    new_user={
-        "username":user.username,
-        "email":user.email,
-        "password":user.password
-    }
-
-    users.append(new_user)
-
-    return new_user
-'''
-#getting all users
-'''@app.get('/users',response_model=List[User])
-def get_users():
-    return users
-'''
-
-'''@app.post('/login')
-def login(user:UserLogin,Authorize:AuthJWT=Depends()):
-    for user in User:
-        if (u["username"]==user.username) and (u["password"]==user.password):
-            
-            return {"username":user.username}
-
-        raise HTTPException(status_code='401',detail="Invalid username or password")
-   ''' 
-
-'''@app.get('/protected')
-def get_logged_in_user(Authorize:AuthJWT=Depends()):
-
-    try:
-        Authorize.jwt_required()
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,detail="Invalid token")
-
-
-    current_user=Authorize.get_jwt_subject()
-
-    return {"current_user":current_user}
-    '''

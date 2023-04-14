@@ -48,3 +48,5 @@ class MedicalRecord(Base):
      date = Column(DateTime(), server_default=func.now())
      patient_id = Column(Integer, ForeignKey('Patient.id'))
      patients = relationship("Patient", back_populates="medical_records")
+
+
