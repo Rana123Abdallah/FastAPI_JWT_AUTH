@@ -17,7 +17,7 @@ class User(Base):
     email = Column(String, unique=True, nullable=False)
     password = Column(String,nullable=False)
     ##hashed_password = Column(String)
-    patients = relationship("Patient", back_populates="user")
+    patients = relationship("Patient", back_populates="user",cascade="all,delete")
     
 
 class Codes(Base):
@@ -39,7 +39,7 @@ class Patient(Base):
     #submited_at = Column(DateTime(timezone=True), server_default=func.now())
     user_id = Column(Integer, ForeignKey('User.id'))
     user = relationship("User", back_populates="patients")
-    medical_records =relationship("MedicalRecord", back_populates="patients")
+    medical_records =relationship("MedicalRecord", back_populates="patients",cascade="all,delete")
 
 class MedicalRecord(Base):
      __tablename__ = "Medical_Record"
