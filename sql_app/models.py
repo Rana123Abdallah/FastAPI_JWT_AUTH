@@ -28,6 +28,15 @@ class Codes(Base):
     reset_code = Column(String, unique=True, nullable=False)
     expired_in = Column(DateTime(), server_default=func.now())
 
+
+class VerificationCode(Base):
+    __tablename__ = "verification_codes"
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True)
+    verification_code = Column(Integer)
+    created_at = Column(DateTime(), server_default=func.now())
+    expires_at = Column(DateTime())
+
 class Patient(Base):
     __tablename__ = "Patient"
 

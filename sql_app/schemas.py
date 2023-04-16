@@ -39,19 +39,22 @@ class Token(BaseModel):
 class TokenData(BaseModel):
     username: str | None = None
 
-class CreateNewPassword(BaseModel):
+class ResetPasswordRequest(BaseModel):
     new_password: constr(min_length=8, max_length=32)
-    confirm_password: str = Field(..., alias='password')
+    confirmed_password: str = Field(..., alias='password')
      
 
 class ForgetPasswordRequest(BaseModel):
     email:EmailStr
 
+class CreateVerifyCode(BaseModel):
+    email:EmailStr
+    verification_code: int
 
-class ResetPasswordRequest(BaseModel):
-    password: constr(min_length=8, max_length=32)
-    #email:EmailStr
-    #verification_code: int
+
+
+class VerifyCode(BaseModel):
+    verification_code: int
 
 '''class Gender(str,Enum):
     MALE="Male"

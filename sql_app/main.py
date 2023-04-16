@@ -1,13 +1,13 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 import dbm
 import email
 import html
 from os import access, stat
 import os
+import schedule
 import time
 from anyio import Path
 from fastapi import BackgroundTasks, FastAPI,Depends, Header, Request,status,Form
-from flask import session
 from sqlalchemy.orm import Session
 from fastapi.exceptions import HTTPException
 from pydantic import BaseModel, ConfigDict, EmailStr
@@ -17,9 +17,9 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from starlette.status import HTTP_401_UNAUTHORIZED
 from sql_app.database import Base, SessionLocal, get_db
-from  sql_app.models import Codes, MedicalRecord, Patient, User
+from  sql_app.models import Codes, MedicalRecord, Patient, User, VerificationCode
 from  . import  models, schemas, crud
-from sql_app.schemas import AddMedicalRecord, AddPatient, CreateNewPassword, CreateUserRequest, DeletePatient, ForgetPasswordRequest, GetPatient,LoginModel, ResetPasswordRequest,Settings
+from sql_app.schemas import AddMedicalRecord, AddPatient, CreateUserRequest, DeletePatient, ForgetPasswordRequest, GetPatient,LoginModel, ResetPasswordRequest,Settings, VerifyCode
 from fastapi.encoders import jsonable_encoder
 from fastapi.security import  OAuth2PasswordRequestForm, OAuth2PasswordBearer,OAuth2AuthorizationCodeBearer
 from werkzeug.security import generate_password_hash , check_password_hash
@@ -31,6 +31,7 @@ from fastapi_mail import FastMail, MessageSchema, ConnectionConfig, MessageType
 from starlette.responses import JSONResponse
 from starlette.requests import Request
 from starlette.config import Config
+from .database import get_db
 
 description = """ 
 ## This app helps doctor to make easy prediction for GP-Respiratory Disease based on Machine Learning model. 🚀
@@ -140,6 +141,10 @@ app.add_middleware(
     allow_headers=["*"],
     
 )
+
+# Set up Flask app to handle session storage
+'''flask_app = Flask(__name__)
+flask_app.secret_key = 'my_secret_key'''
 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -346,22 +351,40 @@ import smtplib
 
 def generate_verification_code():
     # Generate a random 4-digit verification code
-    return str(random.randint(1000, 9999))
+    return random.randint(1000, 9999)
 
-def send_verification_code(email):
-    # Generate a verification code
+def send_verification_code(email:str,db: Session):
+    # Check if there is an existing verification code for the email
+    existing_code = db.query(VerificationCode).filter_by(email=email).first()
+    if existing_code:
+        # Return the existing verification code if it has not expired
+        now = datetime.now().replace(microsecond=0)
+        expires_at = existing_code.created_at + timedelta(minutes=10) # Set expiration time to 10 minutes
+        if now <= expires_at:
+            return existing_code.verification_code
+        else:
+            # Delete the existing verification code if it has expired
+            db.delete(existing_code)
+            db.commit()
+    # Generate a new verification code
     verification_code = generate_verification_code()
+    now = datetime.now().replace(microsecond=0)
+    expires_at = now + timedelta(minutes=10) # Set expiration time to 10 minutes
+    code = VerificationCode(email=email, verification_code=verification_code, created_at=now, expires_at=expires_at)
+    db.add(code)
+    db.commit()
+    db.refresh(code)
 
     # Set up the SMTP server
     smtp_server = "smtp.gmail.com"
     smtp_port = 587
-    smtp_username = "ranoshah1233@gmail.com"
-    smtp_password = "lnxjsjqwwnisvvzf"
+    smtp_username = "usergp628@gmail.com"
+    smtp_password = "ddvzveavvsiqsplr"
 
     # Create the email message
     message = f"Your verification code is {verification_code}"
-    sender_email = "ranoshah1233@gmail.com"
-    receiver_email = "ra4329530@gmail.com"
+    sender_email = "usergp628@gmail.com"
+    receiver_email = email
     subject = 'Verify Your Code Dear!'
     msg = f'Subject: {subject}\n\n{message}'
 
@@ -370,34 +393,104 @@ def send_verification_code(email):
         server.starttls()
         server.login(smtp_username, smtp_password)
         server.sendmail(sender_email, receiver_email, msg)
+    
     return verification_code
 
+def verify_verification_code(email: str,verification_code :int,db: Session):
+    # Retrieve the generated code for the email from the database
+    code = db.query(VerificationCode).filter_by(email=email).first()
+    if code is None:
+        return False
+    generated_code = str(code.verification_code)
+
+    # Check if the verification code has expired
+    now = datetime.now().replace(microsecond=0)
+    expires_at = code.created_at + timedelta(minutes=10)  # Set expiration time to 10 minutes
+    if now > expires_at:
+        db.delete(code)
+        db.commit()
+        return False
+    # Strip any whitespaces from the entered code
+    entered_code_stripped = str(verification_code).strip()
+    if entered_code_stripped == generated_code:
+        return True
+    else:
+        return False
+    
+
+
+def delete_expired_verification_codes():
+    db = SessionLocal()
+    now = datetime.now().replace(microsecond=0)
+    expired_codes = db.query(VerificationCode).filter(VerificationCode.expires_at <= now).all()
+    for code in expired_codes:
+        db.delete(code)
+    db.commit()
+
+# Run the task every minute
+schedule.every(1).minutes.do(delete_expired_verification_codes)
+
+while True:
+    schedule.run_pending()
+    time.sleep(1)
 # Example usage
 #send_verification_code("ra4329530@gmail.com")
 
-def verify_verification_code(email, verification_code):
-    # Your code to verify the verification code goes here
-    # Set up the SMTP server
-    smtp_server = "smtp.gmail.com"
-    smtp_port = 587
-    smtp_username = "ranoshah1233@gmail.com"
-    smtp_password = "lnxjsjqwwnisvvzf"
+# **********************************************************************************************
 
-    # Log in to the SMTP server and send the email
-    with smtplib.SMTP(smtp_server, smtp_port) as server:
-        server.starttls()
-        server.login(smtp_username, smtp_password)
 
-        # Check if the code matches the one sent in the email
-        message = f"Your verification code is {verification_code}"
-        sender_email = "ranoshah1233@gmail.com"
-        receiver_email = email
+@app.post('/forget-password/',tags=["User"])
+async def forget_password (details:ForgetPasswordRequest,db: Session = Depends(get_db)):
+    #check if user exists
+    db_user= db.query(User).filter(User.email==details.email).first()
+    if not db_user:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="User with this email not found, Check that this email which you had registered .")
+    
+   # Send verification code and insert it into the database
+    verification_code = send_verification_code(details.email, db)
 
-        if message in server.sendmail(sender_email, receiver_email, message):
-            return True
+
+    return { 
+         "message": f" Check your email we send you a 4-digit verification code: {verification_code} "
+        
+    }
+ #***************************************************************************************************************
+
+@app.post("/verify-code",tags=["User"])
+async def verfiyCode(details:VerifyCode,email: str = Header(None),db: Session = Depends(get_db)):
+   # Verify code
+    if verify_verification_code(email, details.verification_code, db):
+        # Return response
+        return {
+            "message": "Correct verification code",
+        }
+    else:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Incorrect verification code")
+
+#*********************************************************************************************************************
+@app.post('/reset-password')
+def reset_password(details:ResetPasswordRequest, db: Session = Depends(get_db)):
+    try:
+        # Check if new password and confirmed password match
+        if details.new_password == details.confirmed_password:
+            # Update user's password in the database
+            user = db.query(User).filter_by(email=email).first()
+            if user is None:
+                raise HTTPException(status_code=400, detail="User with the given email not found.")
+            user.password = hash_password(new_password)
+            db.commit()
+            return {"message": "Password reset successful."}
         else:
-            return False
+            raise HTTPException(status_code=400, detail="New password and confirmed password do not match.")
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
+
+#********************************************************************************************************************************
 
 def get_user_by_email(db: Session, email: str):
     return db.query(models.User).filter(models.User.email == email).first()
@@ -409,89 +502,6 @@ def update_password(db: Session,email: str, password: str):
         #return {"message": "Your password has been updated successfully."}
     else:
         return {"message": "User not found."}
-
-# **********************************************************************************************
-
-
-@app.post('/forget-password/',tags=["User"])
-async def forget_password (details:ForgetPasswordRequest,db: Session = Depends(get_db)):
-    #check user exist
-    db_user= db.query(User).filter(User.email==details.email).first()
-    if not db_user:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-                            detail="User with this email not found, Check that this email which you had registered .")
-    
-    code = send_verification_code(details.email)
-    return { 
-         "message": " Check your email we send you a 4-digit verification code ",
-        
-    }
- #***************************************************************************************************************
-
-@app.post("/reset_password/",tags=["User"])
-async def reset_password(details:ResetPasswordRequest,db: Session = Depends(get_db)):
-   
-   # Verify code
-   '''if verify_verification_code(email, verification_code):
-        # Update password
-        hashed_password = generate_password_hash(details.password)
-        db_user = db.query(User).filter(User.email == details.email).first()
-        db_user.password = hashed_password
-        db.commit()
-
-        # Return response
-        return {
-            "message": "Password updated successfully",
-        }
-   else:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-                            detail="Incorrect verification code")'''
-
-
-@app.post('/forget-password/',tags=["User"])
-async def create_reset_code (details:ForgetPasswordRequest,db: Session = Depends(get_db)):
-    #check user exist
-    db_user= db.query(User).filter(User.email==details.email).first()
-    if not db_user:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,detail="User not found.")
-    
-    #create reset pass and save in the database
-    reset_code =str(uuid.uuid1()) 
-    
-    to_create = Codes(
-         reset_code = reset_code,
-         email=details.email,
-         
-    )
-
-    db.add(to_create)
-    db.commit()
-    #return db_code
-    #await crud.create_reset_code(reset_code, email =details.email )
-   # return reset_code
-     
-    #db.add(details.email ,reset_code)
-    #db.commit()
-    return reset_code 
-    
-@app.post('/new-password/',tags=["User"])
-async def create_new_password (details:CreateNewPassword,db: Session = Depends(get_db)):
-    db_user= db.query(User).filter(User.password==details.new_password).first()
-    if db_user:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-                            detail="Your new password must be different from previously used password"
-        )
-
-    else:
-        new_password = generate_password_hash(details.new_password)
-        db.query(User).filter(User.password == 'password').update({'password':'new_password'})
-        db.commit()
-        
-    return { 
-         "message": "Congratulation!! Successfully Changed password",
-        
-    }
-
 
 
 @app.get("/user/", tags=["User"])
