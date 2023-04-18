@@ -1,15 +1,18 @@
-from ast import List
+"""
+This module defines Pydantic models for use in a FastAPI application.
+"""
+
 import datetime
-from enum import Enum
-from typing import Optional
 from typing import List
-from pydantic import BaseModel, BaseSettings, Field, constr, validator 
-from pydantic.networks import EmailStr
-from sqlalchemy import TEXT, TIMESTAMP, DateTime
-import datetime
+
+from pydantic import BaseModel, Field, constr, EmailStr
 
 class Config:
-        arbitrary_types_allowed = True
+    """
+    Pydantic configuration for enabling ORM mode and allowing arbitrary types.
+    """
+    orm_mode = True
+    arbitrary_types_allowed = True
 
 class CreateUserRequest(BaseModel):
     username: str = ...
@@ -41,7 +44,7 @@ class TokenData(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     new_password: constr(min_length=8, max_length=32)
-    confirmed_password: str = Field(..., alias='password')
+    confirmed_password: str = Field(..., alias='Confirm Password')
      
 
 class ForgetPasswordRequest(BaseModel):
