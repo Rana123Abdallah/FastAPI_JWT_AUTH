@@ -3,9 +3,10 @@ This module defines Pydantic models for use in a FastAPI application.
 """
 
 import datetime
-from typing import List
+from typing import Dict, List, Optional, Union
 
-from pydantic import BaseModel, Field, constr, EmailStr
+from pydantic import BaseModel, Field, constr, EmailStr, validator
+from sqlalchemy import union
 
 class Config:
     """
@@ -22,6 +23,29 @@ class CreateUserRequest(BaseModel):
 
     class Config:
         orm_mode = True
+
+
+class UserData(BaseModel):
+    id : int
+    username: str 
+    email:EmailStr
+
+    class Config:
+        orm_mode = True  
+
+
+class ProfileDataBase(BaseModel):
+    doctorname: str 
+    #doctor_image: Optional[bytes]
+    specialization: str
+    years_of_experience: int
+    phone_number: constr(min_length=11, max_length=11)
+    number_of_patients: Optional[int]
+    doctor_image: Optional[str]  
+    class Config:
+        orm_mode = True
+
+
 
 
 class Settings(BaseModel):
@@ -44,7 +68,7 @@ class TokenData(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     new_password: constr(min_length=8, max_length=32)
-    confirmed_password: str = Field(..., alias='Confirm Password')
+    confirmed_password: str 
      
 
 class ForgetPasswordRequest(BaseModel):
@@ -78,6 +102,11 @@ class AddPatient(BaseModel):
     gender : str
     address :str
     mobile_number : constr(min_length=11, max_length=11)
+    @validator('mobile_number')
+    def validate_mobile_number(cls, value):
+        if not value.isdigit():
+            raise ValueError('mobile number should only contain digits')
+        return value
     class Config:
         orm_mode = True
 
@@ -115,6 +144,20 @@ class AddMedicalRecord(BaseModel):
 class Patient(Patient):
     medical_records: List[MedicalRecord] = []
 
+    def medical_records_with_message(self):
+        if not self.medical_records:
+            return [{"message": "This patient doesn't have any medical records yet"}]
+        else:
+            return self.medical_records
+
+    def dict(self, **kwargs):
+        if not self.medical_records:
+            return super().dict(**kwargs) | {"medical_records": self.medical_records_with_message()}
+        else:
+            return super().dict(**kwargs)
+
+
+    
     class Config:
         orm_mode = True
 

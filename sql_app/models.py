@@ -2,7 +2,7 @@
 This module defines the SQLAlchemy models for the tables.
 """
 
-from sqlalchemy import ForeignKey, String, Integer, Column, DateTime, func
+from sqlalchemy import LargeBinary, ForeignKey, String, Integer, Column, DateTime, func
 from sqlalchemy.orm import relationship
 from sql_app.database import Base
 
@@ -27,6 +27,22 @@ class User(Base):
     password = Column(String, nullable=False)
     ##hashed_password = Column(String)
     patients = relationship("Patient", back_populates="user", cascade="all,delete")
+    profiledata = relationship("ProfileData", uselist=False, back_populates="user",cascade="all,delete")
+
+
+class ProfileData(Base):
+    __tablename__ = 'profiledata'
+    
+    id = Column(Integer, primary_key=True)
+    doctorname = Column(String,nullable=False)
+    doctor_image = Column(String,nullable=True)
+    specialization = Column(String(255),nullable=False)
+    years_of_experience = Column(Integer,nullable=False)
+    phone_number = Column(String,nullable=False)
+    number_of_patients = Column(Integer,default=0)
+    user_id = Column(Integer, ForeignKey("User.id"), unique= True)
+    user = relationship('User', back_populates='profiledata')
+
 
 
 class Codes(Base):
