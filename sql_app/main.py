@@ -12,8 +12,6 @@ import time
 from datetime import datetime, timedelta
 import random
 import smtplib
-import json
-from tkinter import Image
 from typing import Optional
 import uuid
 
