@@ -4,22 +4,35 @@ application that allows doctors to make predictions for
 GP-Respiratory Disease using a Machine Learning model.
 """
 
+import base64
+import io
+import logging
+import os
 import time
 from datetime import datetime, timedelta
 import random
 import smtplib
+import json
+from tkinter import Image
+from typing import Optional
+import uuid
 
-from fastapi import FastAPI, Depends, Header, HTTPException, Request, status
+from fastapi import FastAPI, Depends, Form, Header, HTTPException, Request, status, File, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi_jwt_auth import AuthJWT
+from fastapi.responses import FileResponse
+from fastapi.responses import StreamingResponse
+from pydantic import ValidationError
+from sqlalchemy import func
+from PIL import Image
 
 from sqlalchemy.orm import Session
 from starlette.middleware.base import BaseHTTPMiddleware
 from werkzeug.security import generate_password_hash, check_password_hash
 from sql_app import models, schemas, crud
 from sql_app.database import SessionLocal, get_db
-from sql_app.models import MedicalRecord, Patient, User, VerificationCode
+from sql_app.models import MedicalRecord, Patient, ProfileData, User, VerificationCode
 from sql_app.schemas import (
     AddMedicalRecord,
     AddPatient,
@@ -27,13 +40,14 @@ from sql_app.schemas import (
     DeletePatient,
     ForgetPasswordRequest,
     LoginModel,
+    ProfileDataBase,
     ResetPasswordRequest,
     Settings,
     VerifyCode,
 )
 
 DESCRIPTION = """
-## This app helps doctors make easy predictions for GP-Respiratory Disease using a Machine Learning model. 🚀
+## This app helps doctors make easy predictions for Respiratory Disease using a Machine Learning model. 🚀
 
 ## Users must be doctors, not patients, to use this app.
 
@@ -56,6 +70,9 @@ tags_metadata = [
     },
     {"name": "patient", "description": "Operations with patients."},
 ]
+
+
+IMAGEDIR = "Images/"
 
 app = FastAPI(
     title="GP-Respiratory Disease",
@@ -176,7 +193,8 @@ async def create(details: CreateUserRequest, database: Session = Depends(get_db)
     database.commit()
     return {
         "message": "Congratulation!! Successfully Register",
-        # "created_id": to_create.id
+         #"created_id": to_create.id,
+         #"user_name": to_create.username
     }
 
 
@@ -224,9 +242,186 @@ def login(
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid email or password"
     )
+#**************************************************************************************************
+@app.post("/user/profiledata", tags=["User"])
+async def create_profiledata(
+    image_file: Optional[UploadFile] = File(None),
+    details: str = Form(...),
+    authorize: AuthJWT = Depends(),
+    db: Session = Depends(get_db)
+    ):
+    """
+    Endpoint to create a new profiledata object in the database.
+    param image_file: An UploadFile object containing the image data.
+    param details: A JSON-encoded string containing the profiledata details.
+    param authorize: An AuthJWT dependency used to verify the validity of the JWT token.
+    param db: A SQLAlchemy Session object used to interact with the database.
+    return: A JSON response indicating whether the profiledata was successfully created.
+    """
 
 
+    try:
+        authorize.jwt_required()
+    except Exception as error:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token") from error
+
+    current_user = authorize.get_jwt_subject()
+    user = db.query(User).filter(User.id == current_user).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You are not authorized to create profiledata for this user")
+
+    db_profiledata = db.query(ProfileData).filter(ProfileData.user_id == user.id).first()
+    if db_profiledata is not None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ProfileData already exists for this user")
+
+    # Parse the JSON object from the form data
+    details_dict = json.loads(details)
+
+    # Create a Pydantic model from the parsed JSON object
+    details_model = ProfileDataBase(**details_dict)
+    # If an image file is provided, resize it and save it to a directory
+    if image_file is not None:
+        image_file.filename = f"{uuid.uuid4()}.jpg"
+        contents = await image_file.read()
+        with Image.open(io.BytesIO(contents)) as img:
+            img = img.resize((200, 200))
+            if img.mode == "RGBA":  # Convert image to RGB mode if it is in RGBA mode
+                img = img.convert("RGB")
+            img.save(f"{IMAGEDIR}/{image_file.filename}")
+        image_path = f"{IMAGEDIR}{image_file.filename}"
+    else:
+        image_path = None
+
+    # Create a new ProfileData instance with the parsed details and the path to the saved image (if provided)
+    to_create = ProfileData(
+        doctorname=f"Dr. {details_model.doctorname}",
+        specialization=details_model.specialization,
+        years_of_experience=details_model.years_of_experience,
+        phone_number=details_model.phone_number,
+        number_of_patients=0,
+        doctor_image=image_path,
+        user_id=user.id
+    )
+
+    # Add the new ProfileData instance to the database
+    db.add(to_create)
+    db.commit()
+    db.refresh(to_create)
+
+    return {
+        "message": "ProfileData created successfully"
+    }
 # **************************************************************************************************
+@app.put("/user/profiledata/", tags=["User"])
+async def edit_profiledata(
+    image_file: Optional[UploadFile] = File(None),
+    details: Optional[str] = Form(None),
+    authorize: AuthJWT = Depends(),
+    db: Session = Depends(get_db)
+    ):
+    """
+    Endpoint to edit the user's profiledata in the database.
+    param image_file: An optional UploadFile object containing the image data.
+    param details: An optional JSON-encoded string containing the updated profiledata details.
+    param authorize: An AuthJWT dependency used to verify the validity of the JWT token.
+    param db: A SQLAlchemy Session object used to interact with the database.
+    return: A JSON response indicating whether the profiledata was successfully updated.
+    """
+
+    try:
+        authorize.jwt_required()
+    except Exception as error:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token") from error
+
+    current_user = authorize.get_jwt_subject()
+    user = db.query(User).filter(User.id == current_user).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You are not authorized to edit profiledata for this user")
+
+    db_profiledata = db.query(ProfileData).filter(ProfileData.user_id == user.id).first()
+    if not db_profiledata:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ProfileData does not exist for this user")
+
+    if details is not None:
+        # Parse the JSON object from the form data
+        details_dict = json.loads(details)
+
+        # Create a Pydantic model from the parsed JSON object
+        details_model = ProfileDataBase(**details_dict)
+
+        db_profiledata.doctorname = f"Dr. {details_model.doctorname}"
+        db_profiledata.specialization = details_model.specialization
+        db_profiledata.years_of_experience = details_model.years_of_experience
+        db_profiledata.phone_number = details_model.phone_number
+
+    if image_file is not None:
+        image_file.filename = f"{uuid.uuid4()}.jpg"
+        contents = await image_file.read()
+        with Image.open(io.BytesIO(contents)) as img:
+            img = img.resize((200, 200))
+            if img.mode == "RGBA":  # Convert image to RGB mode if it is in RGBA mode
+                img = img.convert("RGB")
+            img.save(f"{IMAGEDIR}/{image_file.filename}")
+        if db_profiledata.doctor_image:
+            old_image_path = os.path.join(IMAGEDIR, db_profiledata.doctor_image)
+            if os.path.exists(old_image_path):
+                os.remove(old_image_path)
+        db_profiledata.doctor_image = f"{IMAGEDIR}{image_file.filename}"
+
+    db.commit()
+    db.refresh(db_profiledata)
+
+    return {
+        "message": "ProfileData updated successfully",
+        "updated_id": db_profiledata.id
+    }
+#*************************************************************************************************
+@app.get("/logged_user/profiledata", tags=["User"])
+async def get_profiledata(
+    authorize: AuthJWT = Depends(),
+    db: Session = Depends(get_db)
+):
+    """
+    Endpoint to retrieve the profiledata for the currently logged-in user.
+
+    param authorize: An AuthJWT dependency used to verify the validity of the JWT token.
+    param db: A SQLAlchemy Session object used to interact with the database.
+    return: A JSON response containing the profiledata and the image for the currently logged-in user.
+    """
+
+    try:
+        authorize.jwt_required()
+    except Exception as error:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token") from error
+
+    current_user = authorize.get_jwt_subject()
+    user = db.query(User).filter(User.id == current_user).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You are not authorized to access profiledata for this user")
+
+    profiledata = db.query(ProfileData).filter(ProfileData.user_id == user.id).first()
+    if not profiledata:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profiledata not found")
+
+    # Construct the full path to the image file based on the relative path stored in the `doctor_image` attribute
+    image_path = profiledata.doctor_image
+    # Create a dict with the profiledata details
+    profiledata_dict = {
+    "doctorname": profiledata.doctorname,
+    "specialization": profiledata.specialization,
+    "years_of_experience": profiledata.years_of_experience,
+    "phone_number": profiledata.phone_number,
+    "number_of_patients": profiledata.number_of_patients,
+    "doctor_image": profiledata.doctor_image
+}
+     # Return the profiledata and image as a JSON response
+    return {
+        "Message":f"The all information of {profiledata.doctorname}",
+        "profiledata": profiledata_dict,
+        
+    }
+    
+#***************************************************************************************************
 @app.get("/protected", tags=["User"])
 def get_logged_in_user(authorize: AuthJWT = Depends()):
     """
@@ -321,7 +516,7 @@ def send_verification_code(email: str, database: Session):
     message = f"Your verification code is {verification_code}"
     sender_email = "usergp628@gmail.com"
     receiver_email = email
-    subject = "Verify Your Code Dear!"
+    subject = "Verify Your Code."
     msg = f"Subject: {subject}\n\n{message}"
 
     # Log in to the SMTP server and send the email
@@ -498,13 +693,34 @@ def reset_password(
 
 # ******************************************************************
 @app.get("/user", tags=["User"])
-def get_by_id(user_id: int, database: Session = Depends(get_db)):
+def get_by_id(user_id: int, authorize: AuthJWT = Depends(), database: Session = Depends(get_db)):
     """
     ## Get user by its id
     """
-    return database.query(User).filter(User.id == user_id).first()
+    try:
+        authorize.jwt_required()
+    except Exception as error:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+        ) from error
 
+    current_user = authorize.get_jwt_subject()
+    if current_user != user_id:
+        raise HTTPException(status_code=403, detail="You are not authorized to access this resource")
 
+    user_db = database.query(User).filter(User.id == user_id).first()
+    if not user_db:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user_data = schemas.UserData.from_orm(user_db)
+
+    return {
+        "message": f"The all information of user with id {user_id}",
+        "User_Data": user_data,
+    }
+
+    
+# ************************************************************************
 @app.delete("/user/delete_user", tags=["User"])
 def delete_user(user_username: str, database: Session = Depends(get_db)):
     """
@@ -520,7 +736,6 @@ def delete_user(user_username: str, database: Session = Depends(get_db)):
         )
 
 # ****************************************************************************************
-# Add New Patient by current user
 @app.post("/user/patient", tags=["Patient with logged user"])
 def create_patient(
     details: AddPatient,
@@ -545,7 +760,21 @@ def create_patient(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
         ) 
 
-
+    profile_data = database.query(ProfileData).filter(ProfileData.user_id == current_user).first()
+    if not profile_data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Profile data not found"
+        )
+    # Check if a patient with the given full name already exists for this user
+    existing_patient = database.query(Patient).filter(
+        Patient.full_name == details.full_name,
+        Patient.user_id == user.id,
+    ).first()
+    if existing_patient:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Patient already existed "
+        )
+    
     new_patient = Patient(
         full_name=details.full_name,
         gender=details.gender,
@@ -553,13 +782,16 @@ def create_patient(
         mobile_number=details.mobile_number,
     )
     new_patient.user = user
-    database.add(new_patient)
+    profile_data.number_of_patients += 1
+    database.add_all([new_patient, profile_data])
     database.commit()
+    database.refresh(new_patient)
+    database.refresh(profile_data)
     return {
         "message": "Congratulation!! Successfully Submited",
         "created_id": new_patient.id,
+        #"number_of_patients": profile_data.number_of_patients
     }
-
 
 # **********************************************************************************
 # Get a current user's patients
@@ -622,20 +854,28 @@ async def get_specific_patient(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
         ) 
+    # Convert the search string to lowercase
+    full_name = full_name.lower()
 
-    patients = current_user.patients
-    for patient in patients:
-        if patient.full_name == full_name:
-            return {
-                "status": True,
-                "message": f"The all information of {full_name} ",
-                "patient": [schemas.Patient.from_orm(patient)],
-            }
-
-    raise HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail="No patient with such full_name existed",
+    # Convert the patient names in the database to lowercase and perform the search
+    patients = (
+        database.query(Patient)
+        .join(User)
+        .filter(User.id == user, func.lower(Patient.full_name).like(f'%{full_name}%'))
+        .all()
     )
+    print (full_name)
+    if not patients:
+       raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="No patient with such name existed",
+       )
+
+    return {
+    "status": True,
+    "message": f"The all information of patients with name containing {full_name}",
+    "patients": [schemas.Patient.from_orm(patient) for patient in patients],
+     } 
 
 
 # ***********************************************************
@@ -670,6 +910,13 @@ async def delete_specific_patient(
         Patient.user_id == user).first()
     )
     if patient_to_delete:
+        # Decrement the number of patients in the ProfileData table
+        profile_data = database.query(ProfileData).filter(
+            ProfileData.user_id == user,
+        ).first()
+        if profile_data:
+            profile_data.number_of_patients -= 1
+            database.add(profile_data)
         database.delete(patient_to_delete)
         database.commit()
         # return order_to_delete
@@ -721,7 +968,7 @@ async def create_medical_record(
        }
     
     raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Patient of {details.patient_id} is not present in table Patient"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Patient of {details.patient_id} is not present Patients that You added"
         ) 
 
 
