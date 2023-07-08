@@ -3,9 +3,9 @@ This module defines Pydantic models for use in a FastAPI application.
 """
 
 import datetime
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional
 
-from pydantic import BaseModel, Field, constr, EmailStr, validator
+from pydantic import BaseModel,constr, EmailStr, validator
 from sqlalchemy import union
 
 class Config:
@@ -14,6 +14,11 @@ class Config:
     """
     orm_mode = True
     arbitrary_types_allowed = True
+
+class Settings(BaseModel):
+    authjwt_secret_key:str='98af08c0018e5631e24864709e12d456035c2c5162ac1e8ad4a1a44cd3a92172'
+    
+
 
 class CreateUserRequest(BaseModel):
     username: str = ...
@@ -47,24 +52,10 @@ class ProfileDataBase(BaseModel):
 
 
 
-
-class Settings(BaseModel):
-    authjwt_secret_key:str='98af08c0018e5631e24864709e12d456035c2c5162ac1e8ad4a1a44cd3a92172'
-    #ALGORITHM = "HS256"
-    #ACCESS_TOKEN_EXPIRE_MINUTES = 1440
-
 class LoginModel(BaseModel):
     email:EmailStr
     password:constr(min_length=8, max_length=32)
 
-
-class Token(BaseModel):
-    access_token: str
-    token_type: str
-
-
-class TokenData(BaseModel):
-    username: str | None = None
 
 class ResetPasswordRequest(BaseModel):
     new_password: constr(min_length=8, max_length=32)
@@ -83,9 +74,7 @@ class CreateVerifyCode(BaseModel):
 class VerifyCode(BaseModel):
     verification_code: int
 
-'''class Gender(str,Enum):
-    MALE="Male"
-    FEMALE="Female"'''
+
 
 class Patient(BaseModel):
     id:int

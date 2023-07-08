@@ -4,9 +4,8 @@ application that allows doctors to make predictions for
 GP-Respiratory Disease using a Machine Learning model.
 """
 
-import base64
+
 import io
-import logging
 import os
 import time
 from datetime import datetime, timedelta
@@ -21,11 +20,16 @@ from fastapi import FastAPI, Depends, Form, Header, HTTPException, Request, stat
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi_jwt_auth import AuthJWT
-from fastapi.responses import FileResponse
-from fastapi.responses import StreamingResponse
-from pydantic import ValidationError
 from sqlalchemy import func
 from PIL import Image
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.openapi.docs import (
+    get_swagger_ui_html,
+    get_redoc_html,
+
+)
+from fastapi.staticfiles import StaticFiles
+from auth.auth_bearer import JWTBearer
 
 from sqlalchemy.orm import Session
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -90,9 +94,10 @@ app = FastAPI(
     },
     openapi_tags=tags_metadata,
     openapi_url="/api/v1/openapi.json",
-    docs_url="/documentation",
-    # redoc_url=None,
+    docs_url=None,
+    redoc_url=None,
 )
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 class MyMiddleware(BaseHTTPMiddleware):
@@ -128,6 +133,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/docs", include_in_schema=False)
+async def custom_swagger_ui_html():
+    return get_swagger_ui_html(
+        openapi_url=app.openapi_url,
+        title=app.title + " - Swagger UI",
+        oauth2_redirect_url=app.swagger_ui_oauth2_redirect_url,
+        swagger_js_url="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js",
+        swagger_css_url="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css",
+    )
+
+@app.get("/redoc", include_in_schema=False)
+async def redoc_html():
+    return get_redoc_html(
+        openapi_url=app.openapi_url,
+        title=app.title + " - ReDoc",
+        redoc_js_url="https://unpkg.com/redoc/bundles/redoc.standalone.js",
+    )
+
+# *****************************************************************************************
 
 @app.get("/", tags=["User"])
 async def read_root(authorize: AuthJWT = Depends()):
@@ -193,19 +217,18 @@ async def create(details: CreateUserRequest, database: Session = Depends(get_db)
     database.commit()
     return {
         "message": "Congratulation!! Successfully Register",
-         #"created_id": to_create.id,
-         #"user_name": to_create.username
     }
 
 
 # *********************************************************************************************
 
 
-@app.post("/user/login", tags=["User"])
+@app.post("/user/login",tags=["User"])
 def login(
     details: LoginModel,
-    authorize: AuthJWT = Depends(),
+    authorize : AuthJWT = Depends(),
     database: Session = Depends(get_db),
+    
 ):
     """
     Endpoint to log in a user with their email and password.
@@ -225,25 +248,24 @@ def login(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=" Sorry!! Invalid password , try again with the correct password",
         )
-
+    
     if db_user and check_password_hash(db_user.password, details.password):
         access_token = authorize.create_access_token(
-            subject=db_user.id, expires_time=timedelta(minutes=1440.0)
+        subject=db_user.id, expires_time=timedelta(minutes=60)
         )
-        # refresh_token=Authorize.create_refresh_token(subject=db_user.username)
-
         response = {
-            "message": "Successfull Login",
+            "message": "Successful login.",
             "token": access_token,
-            # "refresh":refresh_token
         }
         return jsonable_encoder(response)
 
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid email or password"
     )
+
+       
 #**************************************************************************************************
-@app.post("/user/profiledata", tags=["User"])
+@app.post("/user/profiledata",tags=["User"])
 async def create_profiledata(
     image_file: Optional[UploadFile] = File(None),
     details: str = Form(...),
@@ -296,7 +318,8 @@ async def create_profiledata(
     to_create = ProfileData(
         doctorname=f"Dr. {details_model.doctorname}",
         specialization=details_model.specialization,
-        years_of_experience=details_model.years_of_experience,
+        years_of_experience=details_model.
+        years_of_experience,
         phone_number=details_model.phone_number,
         number_of_patients=0,
         doctor_image=image_path,
@@ -312,7 +335,7 @@ async def create_profiledata(
         "message": "ProfileData created successfully"
     }
 # **************************************************************************************************
-@app.put("/user/profiledata/", tags=["User"])
+@app.put("/user/profiledata/",tags=["User"])
 async def edit_profiledata(
     image_file: Optional[UploadFile] = File(None),
     details: Optional[str] = Form(None),
@@ -376,7 +399,7 @@ async def edit_profiledata(
         "updated_id": db_profiledata.id
     }
 #*************************************************************************************************
-@app.get("/logged_user/profiledata", tags=["User"])
+@app.get("/logged_user/profiledata",tags=["User"])
 async def get_profiledata(
     authorize: AuthJWT = Depends(),
     db: Session = Depends(get_db)
@@ -422,7 +445,7 @@ async def get_profiledata(
     }
     
 #***************************************************************************************************
-@app.get("/protected", tags=["User"])
+@app.get("/protected",tags=["User"])
 def get_logged_in_user(authorize: AuthJWT = Depends()):
     """
     Endpoint to get the currently logged in user.
@@ -443,31 +466,6 @@ def get_logged_in_user(authorize: AuthJWT = Depends()):
 
 
 # ****************************************************************************
-@app.get("/refresh", tags=["User"])
-async def refresh_token(authorize: AuthJWT = Depends()):
-    """
-    ## Create a fresh token
-    This creates a fresh token. It requires an refresh token.
-    """
-
-    try:
-        authorize.jwt_refresh_token_required()
-
-    except Exception as error:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Please provide a valid refresh token",
-        ) from error
-
-    current_user = authorize.get_jwt_subject()
-    access_token = authorize.create_access_token(subject=current_user)
-
-    return jsonable_encoder({"access": access_token})
-
-
-# ***********************************************************************************************
-
-
 def generate_verification_code():
     """
     # Generate a random 4-digit verification code
@@ -578,18 +576,7 @@ def delete_expired_verification_codes():
         database.delete(code)
     database.commit()
 
-
-# This code block schedules a task to delete expired verification codes every minute
-# schedule.every(1).minutes.do(delete_expired_verification_codes)
-# while True:
-#    schedule.run_pending()
-#    time.sleep(1)
-# Example usage
-# send_verification_code("ra4329530@gmail.com")
-
 # **********************************************************************************************
-
-
 @app.post("/user/forget-password", tags=["User"])
 async def forget_password(
     details: ForgetPasswordRequest, database: Session = Depends(get_db)
@@ -736,7 +723,7 @@ def delete_user(user_username: str, database: Session = Depends(get_db)):
         )
 
 # ****************************************************************************************
-@app.post("/user/patient", tags=["Patient with logged user"])
+@app.post("/user/patient",tags=["Patient with logged user"])
 def create_patient(
     details: AddPatient,
     authorize: AuthJWT = Depends(),
@@ -790,7 +777,6 @@ def create_patient(
     return {
         "message": "Congratulation!! Successfully Submited",
         "created_id": new_patient.id,
-        #"number_of_patients": profile_data.number_of_patients
     }
 
 # **********************************************************************************
@@ -831,7 +817,7 @@ async def get_user_patients(
 
 # *****************************************************************************
 # Get a specific patient by the currently logged in user
-@app.get("/user/patient/{full_name}/", tags=["Patient with logged user"])
+@app.get("/user/patient/{full_name}/",tags=["Patient with logged user"])
 async def get_specific_patient(
     full_name: str, authorize: AuthJWT = Depends(), database: Session = Depends(get_db)
 ):
@@ -925,12 +911,6 @@ async def delete_specific_patient(
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST, detail="This Patient is not exist "
     )
-
-
-# user=Authorize.get_jwt_subject()
-# current_user=db.query(User).filter(User.id==user).first()
-# patients=current_user.patients
-
 
 # **********************************************************************
 # Add New Medical Record to this patient by current user

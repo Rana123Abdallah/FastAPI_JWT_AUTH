@@ -2,7 +2,7 @@
 This module defines the SQLAlchemy models for the tables.
 """
 
-from sqlalchemy import LargeBinary, ForeignKey, String, Integer, Column, DateTime, func
+from sqlalchemy import  ForeignKey, String, Integer, Column, DateTime, func
 from sqlalchemy.orm import relationship
 from sql_app.database import Base
 
@@ -43,25 +43,6 @@ class ProfileData(Base):
     user_id = Column(Integer, ForeignKey("User.id"), unique= True)
     user = relationship('User', back_populates='profiledata')
 
-
-
-class Codes(Base):
-    """
-    A class representing the reset codes used to reset user passwords.
-
-    Attributes:
-        id (int): The code's ID number.
-        email (str): The email address associated with the code.
-        reset_code (str): The reset code itself.
-        expired_in (datetime): The expiration date and time of the code.
-    """
-
-    __tablename__ = "Codes"
-
-    id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, unique=True, nullable=False)
-    reset_code = Column(String, unique=True, nullable=False)
-    expired_in = Column(DateTime(), server_default=func.now())
 
 
 class VerificationCode(Base):
